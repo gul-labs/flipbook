@@ -106,6 +106,31 @@ function fireResizeObservers(): void {
   for (const fire of resizeObservers) fire();
 }
 
+function stubRafQueue(): FrameRequestCallback[] {
+  const queued: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    queued.push(cb);
+    return queued.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => {
+    /* cancelAnimation does not drop the loop via this; leave the queue */
+  });
+  return queued;
+}
+
+/**
+ * Run already-queued loop callbacks. `timestamp` is the rAF clock: a large
+ * value after cancel must overshoot and commit if `this.animation` was left
+ * live (`onAnimateEnd`). Caps re-arms so a loop that never parks fails.
+ */
+function flushQueuedRaf(queued: FrameRequestCallback[], timestamp = 16): void {
+  for (let i = 0; i < 20 && queued.length > 0; i += 1) {
+    const batch = queued.splice(0, queued.length);
+    for (const cb of batch) cb(timestamp);
+  }
+  expect(queued, 'rAF kept re-arming after cancel — loop did not park').toHaveLength(0);
+}
+
 function resizeHost(fixture: ReturnType<typeof makeHtmlBook>, width: number, height = 300): void {
   sizeElement(fixture.host, width, height);
   sizeElement(fixture.book.getBlockElement(), width, height);
@@ -264,13 +289,19 @@ describe('F02 — observer path while a turn is in flight', () => {
   });
 
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {
-    const fixture = book({ flippingTime: 1000 });
+    const queued = stubRafQueue();
+    const fixture = book({ flippingTime: 1000, respectReducedMotion: false });
     const app = fixture.book;
+    // Rest-state draw stamps `Render.timer` so startAnimation's startedAt is
+    // in the past. Do not flush while a fold is live (jsdom clip-path overflow).
+    flushQueuedRaf(queued, 0);
+
     const flips: number[] = [];
     app.on('flip', (e) => flips.push(e.data.page));
 
     expect(app.flipNext()).toBe(true);
-    expect(app.isAnimating() || testFlip(app)?.getCalculation() != null).toBe(true);
+    expect(app.isAnimating()).toBe(true);
+    expect(queued.length, 'flipNext never scheduled a frame').toBeGreaterThan(0);
 
     resizeHost(fixture, 260);
 
@@ -279,28 +310,20 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getState()).toBe(FlippingState.READ);
     expect(app.isAnimating()).toBe(false);
 
-    // A rAF tick after cancel must not land the abandoned turn.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(16);
-      return 1;
-    });
-    app.update();
+    // The loop callback queued while the turn was live. If cancel left
+    // `this.animation` in place, 1s+ overshoots flippingTime and onAnimateEnd
+    // would commit. `app.update()` is not those callbacks.
+    flushQueuedRaf(queued, 1_000_000);
     expect(app.getCurrentPageIndex()).toBe(0);
     expect(flips).toEqual([]);
+    expect(app.getState()).toBe(FlippingState.READ);
   });
 
   test('snap-back in flight: resize cancels the return animation without a flip', () => {
+    const queued = stubRafQueue();
     const fixture = book({ flippingTime: 1000, respectReducedMotion: false });
     const app = fixture.book;
-
-    // Queue rAF without running it: jsdom's CSSStyleDeclaration overflows on
-    // some clip-path strings when drawFrame paints a live fold (not an engine
-    // loop). The observer path under test does not need the frame to paint.
-    const queued: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      queued.push(cb);
-      return queued.length;
-    });
+    flushQueuedRaf(queued, 0);
 
     const rect = app.getBoundsRect();
     const y = rect.top + rect.height - 8;
@@ -310,6 +333,7 @@ describe('F02 — observer path while a turn is in flight', () => {
 
     testFlip(app)?.stopMove();
     expect(app.isAnimating()).toBe(true);
+    expect(queued.length, 'stopMove never scheduled a frame').toBeGreaterThan(0);
 
     const flips: number[] = [];
     app.on('flip', (e) => flips.push(e.data.page));
@@ -321,6 +345,11 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getState()).toBe(FlippingState.READ);
     expect(app.isAnimating()).toBe(false);
     expect(testFlip(app)?.getCalculation() ?? null).toBeNull();
+
+    flushQueuedRaf(queued, 1_000_000);
+    expect(app.getCurrentPageIndex()).toBe(0);
+    expect(flips).toEqual([]);
+    expect(app.getState()).toBe(FlippingState.READ);
   });
 
   test('zero-sized hide/reveal keeps the last bounds and does not cancel at rest', () => {
