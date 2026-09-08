@@ -176,7 +176,13 @@ startNarrationClock();
 
 document.body.dataset['fontReady'] = '0';
 window.setTimeout(() => {
-  const face = new FontFace('StoryDisplay', "local('Georgia'), local('Times New Roman')");
+  // Linux CI has no Georgia/Times. Liberation/DejaVu are on Ubuntu runners;
+  // macOS still hits Georgia. `local(serif)` is last so load() can succeed
+  // without a named face — StoryDisplay then maps to the generic serif.
+  const face = new FontFace(
+    'StoryDisplay',
+    "local('Liberation Serif'), local('DejaVu Serif'), local('Georgia'), local('Times New Roman'), local('serif')",
+  );
   void face
     .load()
     .then((loaded) => {
