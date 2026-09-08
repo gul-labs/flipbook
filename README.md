@@ -188,15 +188,17 @@ export function Book() {
 
 ## Docs
 
-| Doc                                                       | Audience                                      |
-| --------------------------------------------------------- | --------------------------------------------- |
-| [MIGRATION.md](./MIGRATION.md)                            | Upgrading from `page-flip` / `react-pageflip` |
-| [docs/API-CONTRACT.md](./docs/API-CONTRACT.md)            | Locked 3.0 public surface                     |
-| [docs/KNOWN-LIMITATIONS.md](./docs/KNOWN-LIMITATIONS.md)  | Accepted constraints (not silent bugs)        |
-| [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md)      | What stays live on a page during a curl       |
-| [docs/TODO.md](./docs/TODO.md)                            | Open additive backlog                         |
-| [docs/README.md](./docs/README.md)                        | Full docs index                               |
-| [SUPPORT.md](./SUPPORT.md) · [SECURITY.md](./SECURITY.md) | Help and vulnerability reporting              |
+| Doc                                                                            | Audience                                      |
+| ------------------------------------------------------------------------------ | --------------------------------------------- |
+| [MIGRATION.md](./MIGRATION.md)                                                 | Upgrading from `page-flip` / `react-pageflip` |
+| [docs/API-CONTRACT.md](./docs/API-CONTRACT.md)                                 | Locked 3.0 public surface                     |
+| [docs/KNOWN-LIMITATIONS.md](./docs/KNOWN-LIMITATIONS.md)                       | Accepted constraints (not silent bugs)        |
+| [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md)                           | What stays live on a page during a curl       |
+| [docs/requests/PUDDLEBEND-REQUESTS.md](./docs/requests/PUDDLEBEND-REQUESTS.md) | Puddlebend consumer feature & defect requests |
+| [docs/TRIAGED-BACKLOG.md](./docs/TRIAGED-BACKLOG.md)                           | Maintainer triage notes                       |
+| [docs/TODO.md](./docs/TODO.md)                                                 | Open additive checklist                       |
+| [docs/README.md](./docs/README.md)                                             | Full docs index                               |
+| [SUPPORT.md](./SUPPORT.md) · [SECURITY.md](./SECURITY.md)                      | Help and vulnerability reporting              |
 
 ---
 

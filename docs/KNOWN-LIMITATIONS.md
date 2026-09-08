@@ -2,6 +2,8 @@
 
 Accepted current behavior and deferred-with-cause items. These are **not**
 silent bugs. Open work that we still intend to do lives in [TODO.md](./TODO.md).
+**What to build next** (priorities, rejects, product-owned gates):
+[TRIAGED-BACKLOG.md](./TRIAGED-BACKLOG.md).
 
 ## Interaction
 
