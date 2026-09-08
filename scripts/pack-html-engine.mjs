@@ -96,7 +96,9 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // 15.69 kB brotli / 17.68 kB gzip. Correctness + public API, AGENTS.md §2.
 // Destroy-guard on Render.update (reentrancy): 63_930 B. Ceiling 64_000
 // with size-limit twins 64 / 15.7 / 17.7 kB.
-const RAW_ALARM_BYTES = 64_000;
+// Adopt orientation before nested flipNext (portrait step): 64_065 B.
+// Ceiling 64_100 with size-limit twins 64.1 / 15.8 / 17.8 kB.
+const RAW_ALARM_BYTES = 64_100;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

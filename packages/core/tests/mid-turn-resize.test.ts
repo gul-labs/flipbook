@@ -288,6 +288,27 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getBoundsRect().pageWidth).toBe(240);
   });
 
+  test('nested flipNext during orientation-changing resize uses the portrait step', () => {
+    const fixture = book({ flippingTime: 0 });
+    const app = fixture.book;
+    expect(app.getOrientation()).toBe('landscape');
+    startForwardDrag(app);
+
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested && !app.isDestroyed()) {
+        nested = true;
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+
+    resizeHost(fixture, 260);
+
+    expect(app.getOrientation()).toBe('portrait');
+    // Landscape next from 0 is spread [0,1]→[2,3]. Portrait next is 0→1.
+    expect(app.getCurrentPageIndex()).toBe(1);
+  });
+
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {
     const queued = stubRafQueue();
     const fixture = book({ flippingTime: 1000, respectReducedMotion: false });
@@ -373,19 +394,28 @@ describe('F02 — observer path while a turn is in flight', () => {
   });
 
   test('pointercancel mid-drag then a bounds change still cannot commit later', () => {
-    const fixture = book();
+    const queued = stubRafQueue();
+    const fixture = book({ flippingTime: 1000, respectReducedMotion: false });
     const app = fixture.book;
+    flushQueuedRaf(queued, 0);
+
     startForwardDrag(app);
+    expect(testFlip(app)?.getCalculation()).not.toBeNull();
+
     const rect = app.getBoundsRect();
     pointer(app, 'pointercancel', {
       clientX: rect.left + rect.width - 120,
       clientY: rect.top + rect.height - 8,
     });
 
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(testFlip(app)?.getCalculation() ?? null).toBeNull();
+
     const flips: number[] = [];
     app.on('flip', (e) => flips.push(e.data.page));
 
     resizeHost(fixture, 260);
+    flushQueuedRaf(queued, 1_000_000);
 
     expect(app.getCurrentPageIndex()).toBe(0);
     expect(flips).toEqual([]);

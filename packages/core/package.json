@@ -42,19 +42,19 @@
     {
       "name": "html-engine (raw, drift alarm)",
       "path": "size-check/html-engine.js",
-      "limit": "64 kB",
+      "limit": "64.1 kB",
       "gzip": false,
       "brotli": false
     },
     {
       "name": "html-engine (brotli transfer)",
       "path": "size-check/html-engine.js",
-      "limit": "15.7 kB"
+      "limit": "15.8 kB"
     },
     {
       "name": "html-engine (gzip transfer)",
       "path": "size-check/html-engine.js",
-      "limit": "17.7 kB",
+      "limit": "17.8 kB",
       "gzip": true,
       "brotli": false
     }

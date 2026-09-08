@@ -96,6 +96,56 @@ describe('F04 — clone is a snapshot, not a live React tree', () => {
     sheet.remove();
   });
 
+  test('a real fold paints the shared token rule on original and clone', () => {
+    const { book: app, pages } = book({ pageCount: 6, flippingTime: 0 });
+    const token = 'sample-en-page3-word8';
+    pages[0]!.innerHTML = `<span data-token-id="${token}">river</span>`;
+    app.updateFromHtml(pages);
+
+    const sheet = document.createElement('style');
+    sheet.textContent = `[data-token-id="${CSS.escape(token)}"] { background-color: rgb(255, 224, 138); }`;
+    document.head.appendChild(sheet);
+
+    const dist = app.getBlockElement();
+    const rect = app.getBoundsRect();
+    const y = rect.top + rect.height - 8;
+    const fire = (type: string, x: number) =>
+      dist.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          button: 0,
+          buttons: type === 'pointerup' ? 0 : 1,
+          pointerType: 'mouse',
+          clientX: x,
+          clientY: y,
+        }),
+      );
+
+    fire('pointerdown', rect.left + rect.width - 6);
+    fire('pointermove', rect.left + rect.width - 40);
+    fire('pointermove', rect.left + rect.width - 120);
+
+    const originalSpan = pages[0]!.querySelector<HTMLElement>(`[data-token-id="${token}"]`);
+    expect(originalSpan).not.toBeNull();
+    expect(getComputedStyle(originalSpan!).backgroundColor).toBe('rgb(255, 224, 138)');
+
+    const clones = clonesIn(app, pages);
+    expect(clones.length).toBeGreaterThan(0);
+    const cloneSpan = clones
+      .map((c) => c.querySelector<HTMLElement>(`[data-token-id="${token}"]`))
+      .find((el) => el !== null);
+    expect(cloneSpan).not.toBeUndefined();
+    expect(getComputedStyle(cloneSpan!).backgroundColor).toBe('rgb(255, 224, 138)');
+
+    originalSpan!.textContent = 'changed';
+    expect(cloneSpan!.textContent).toBe('river');
+
+    fire('pointerup', rect.left + rect.width - 120);
+    sheet.remove();
+  });
+
   test('clones are not duplicate speech or focus targets during a real fold', () => {
     const { book: app, pages } = book({ pageCount: 6, flippingTime: 0 });
     const spoken = document.createElement('p');

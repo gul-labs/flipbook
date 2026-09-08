@@ -182,6 +182,12 @@ export class Render {
   private pageRect: RectPoints | null = null;
   /** Current book area */
   private boundsRect: PageRect | null = null;
+  /**
+   * True while `ADOPT_ORIENTATION` is restyling the wrapper. That restyle
+   * changes the dist box and re-enters `update()`; those inner bounds changes
+   * must not abandon a turn started from the outer cancel's `changeState`.
+   */
+  private adoptingOrientation = false;
 
   /**
    * Timestamp of the frame currently being rendered, or `null` when no frame
@@ -815,6 +821,7 @@ export class Render {
     // Bounds/orientation adopt are gated; the stamps always run.
     if (observed || this.orientation === null) {
       const previous = this.boundsRect;
+      const orientationChanged = this.orientation !== orientation;
       const boundsChanged =
         observed &&
         previous !== null &&
@@ -824,22 +831,28 @@ export class Render {
           previous.height !== rect.height ||
           previous.pageWidth !== rect.pageWidth);
 
-      // Stamp the new box FIRST. `abandon()` emits `changeState` synchronously,
-      // and a listener may `flipNext()` or `destroy()`. Nested `Flip.start()`
-      // reads `getRect()` into a new FlipCalculation — if that still sees the
-      // old box, the F03 split (static spread vs frozen calc) lands on the
-      // *new* turn. `reset()` nulls calc before `setState`, so no frame can
-      // draw a live fold against the adopted box. At rest this is a no-op.
+      // Stamp the new box AND orientation before abandon. Nested `flipNext()`
+      // from `changeState` reads `getOrientation()` / `getRect()` into a new
+      // turn; leaving orientation on landscape made a portrait resize commit
+      // a two-leaf step (0→2). Inner `ADOPT_ORIENTATION` restyle must not
+      // abandon that nested turn (`adoptingOrientation`).
       this.boundsRect = rect;
+      if (orientationChanged) {
+        this.orientation = orientation;
+      }
 
-      if (boundsChanged) {
+      if (boundsChanged && !this.adoptingOrientation) {
         this.app[INVALIDATE_FOLD_GEOMETRY]();
         if (this.app.isDestroyed()) return;
       }
 
-      if (this.orientation !== orientation) {
-        this.orientation = orientation;
-        this.app[ADOPT_ORIENTATION](orientation);
+      if (orientationChanged) {
+        this.adoptingOrientation = true;
+        try {
+          this.app[ADOPT_ORIENTATION](orientation);
+        } finally {
+          this.adoptingOrientation = false;
+        }
       }
     }
 

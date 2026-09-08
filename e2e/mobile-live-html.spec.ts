@@ -115,11 +115,11 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     await openFixture(page, PORTRAIT, '?reducedMotion=0&flippingTime=800');
     await expect(page.locator('body')).toHaveAttribute('data-orientation', 'portrait');
 
-    const identitiesBefore = await page.evaluate(() =>
-      [...document.querySelectorAll('#book .page:not([data-stf-clone])')].map(
-        (el) => (el as HTMLElement).dataset.pageId,
-      ),
-    );
+    await page.evaluate(() => {
+      (window as unknown as { __pageNodes: Element[] }).__pageNodes = [
+        ...document.querySelectorAll('#book .page:not([data-stf-clone])'),
+      ];
+    });
 
     await page.locator('#next').click();
     await expect(page.locator('body[data-page="1"]')).toBeAttached({ timeout: 5000 });
@@ -148,34 +148,96 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     }
 
     await page.mouse.up();
-    await page.locator('#prev').click();
-
-    const identitiesAfter = await page.evaluate(() =>
-      [...document.querySelectorAll('#book .page:not([data-stf-clone])')].map(
-        (el) => (el as HTMLElement).dataset.pageId,
-      ),
-    );
-    expect(identitiesAfter).toEqual(identitiesBefore);
-
     await expect
       .poll(async () =>
-        page.evaluate(() => {
-          const book = (window as unknown as { flipbook: { isAnimating(): boolean } }).flipbook;
-          return book.isAnimating();
-        }),
+        page.evaluate(() =>
+          (window as unknown as { flipbook: { isAnimating(): boolean } }).flipbook.isAnimating(),
+        ),
       )
       .toBe(false);
+
+    const afterFold = await page.evaluate(() =>
+      (
+        window as unknown as { flipbook: { getCurrentPageIndex(): number } }
+      ).flipbook.getCurrentPageIndex(),
+    );
+    expect(afterFold).toBeGreaterThanOrEqual(1);
+
+    await page.locator('#prev').click();
+    await expect
+      .poll(async () =>
+        page.evaluate(() =>
+          (window as unknown as { flipbook: { isAnimating(): boolean } }).flipbook.isAnimating(),
+        ),
+      )
+      .toBe(false);
+
+    const afterPrev = await page.evaluate(() =>
+      (
+        window as unknown as { flipbook: { getCurrentPageIndex(): number } }
+      ).flipbook.getCurrentPageIndex(),
+    );
+    expect(afterPrev).toBeLessThan(afterFold);
+
+    const sameNodes = await page.evaluate(() => {
+      const before = (window as unknown as { __pageNodes: Element[] }).__pageNodes;
+      const now = [...document.querySelectorAll('#book .page:not([data-stf-clone])')];
+      return now.length === before.length && now.every((node, i) => node === before[i]);
+    });
+    expect(sameNodes).toBe(true);
   });
 
   test('page-progression RTL is independent of the Arabic sample dir', async ({ page }) => {
-    await openFixture(page, LANDSCAPE, '?rtl=1');
-    await expect(page.locator('#rtl-toggle')).toContainText('RTL');
+    await openFixture(page, LANDSCAPE, '?rtl=1&flippingTime=0');
     await expect(page.locator('[data-page-id="rtl-sample"]')).toHaveAttribute('dir', 'rtl');
     await expect(page.locator('[data-page-id="rtl-sample"]')).toContainText('الحجر');
 
+    const before = await page.evaluate(() => {
+      const book = (
+        window as unknown as {
+          flipbook: { getSettings(): { readingDirection: string }; getCurrentPageIndex(): number };
+        }
+      ).flipbook;
+      return { dir: book.getSettings().readingDirection, page: book.getCurrentPageIndex() };
+    });
+    expect(before.dir).toBe('rtl');
+
+    await page.locator('#next').click();
+    const afterNext = await page.evaluate(() =>
+      (
+        window as unknown as { flipbook: { getCurrentPageIndex(): number } }
+      ).flipbook.getCurrentPageIndex(),
+    );
+    expect(afterNext).not.toBe(before.page);
+
     await page.locator('#rtl-toggle').click();
-    await expect(page.locator('#rtl-toggle')).toContainText('LTR');
+    const afterToggle = await page.evaluate(
+      () =>
+        (
+          window as unknown as { flipbook: { getSettings(): { readingDirection: string } } }
+        ).flipbook.getSettings().readingDirection,
+    );
+    expect(afterToggle).toBe('ltr');
     await expect(page.locator('[data-page-id="rtl-sample"]')).toHaveAttribute('dir', 'rtl');
+  });
+
+  test('a click on the book surface does not turn when flipOnClick is never', async ({ page }) => {
+    await openFixture(page, LANDSCAPE);
+    const box = await page.locator('#book .stf__block').boundingBox();
+    if (!box) throw new Error('no book box');
+    const before = await page.evaluate(() =>
+      (
+        window as unknown as { flipbook: { getCurrentPageIndex(): number } }
+      ).flipbook.getCurrentPageIndex(),
+    );
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await settle(page);
+    const after = await page.evaluate(() =>
+      (
+        window as unknown as { flipbook: { getCurrentPageIndex(): number } }
+      ).flipbook.getCurrentPageIndex(),
+    );
+    expect(after).toBe(before);
   });
 
   test('narration clock restyles tokens via a sheet outside page subtrees', async ({ page }) => {
@@ -196,6 +258,12 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     expect(highlight.token).toMatch(/^sample-en-/);
     expect(highlight.sheetOutsidePages).toBe(true);
     expect(highlight.sheetText).toContain(`[data-token-id="${highlight.token}"]`);
+
+    const painted = await page.evaluate((token) => {
+      const el = document.querySelector(`[data-token-id="${token}"]`);
+      return el === null ? null : getComputedStyle(el).backgroundColor;
+    }, highlight.token);
+    expect(painted).toBe('rgb(255, 224, 138)');
 
     const sameNode = await page.evaluate(async () => {
       const book = (
