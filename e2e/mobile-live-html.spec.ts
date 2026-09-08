@@ -279,4 +279,129 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     });
     expect(sameNode).toBe(true);
   });
+
+  test('portrait BACK drag curls the current leaf, not a previous one', async ({ page }) => {
+    await openFixture(page, PORTRAIT, '?reducedMotion=0&flippingTime=800');
+    await page.locator('#next').click();
+    await expect(page.locator('body[data-page="1"]')).toBeAttached({ timeout: 5000 });
+
+    const box = await page.locator('#book .stf__block').boundingBox();
+    if (!box) throw new Error('no book box');
+    const mid = box.y + box.height / 2;
+    await page.mouse.move(box.x + 12, mid);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.65, mid, { steps: 10 });
+    await settle(page);
+
+    const clones = page.locator('#book .stf__item[data-stf-clone]');
+    expect(await clones.count()).toBeGreaterThan(0);
+    await expect(clones.first()).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#book')).toContainText('Inside cover');
+
+    await page.mouse.up();
+  });
+
+  test('highlight paints original and fold clone during a held curl', async ({ page }) => {
+    await openFixture(page, PORTRAIT, '?flippingTime=800&reducedMotion=0');
+    await page.locator('#next').click();
+    await expect(page.locator('body[data-page="1"]')).toBeAttached({ timeout: 5000 });
+    await page.locator('#next').click();
+    await expect.poll(async () => page.locator('body').getAttribute('data-page')).toBe('2');
+
+    await expect
+      .poll(async () => page.locator('body').getAttribute('data-highlight'))
+      .toMatch(/^sample-en-/);
+
+    const box = await page.locator('#book .stf__block').boundingBox();
+    if (!box) throw new Error('no book box');
+    const mid = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width - 10, mid);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.4, mid, { steps: 8 });
+    await settle(page);
+
+    const painted = await page.evaluate(() => {
+      const token = document.body.dataset['highlight'] ?? '';
+      const original = document.querySelector(
+        `.stf__item:not([data-stf-clone]) [data-token-id="${token}"]`,
+      );
+      const clone = document.querySelector(`.stf__item[data-stf-clone] [data-token-id="${token}"]`);
+      return {
+        token,
+        original: original === null ? null : getComputedStyle(original).backgroundColor,
+        clone: clone === null ? null : getComputedStyle(clone).backgroundColor,
+        cloneCount: document.querySelectorAll('[data-stf-clone]').length,
+      };
+    });
+    expect(painted.cloneCount).toBeGreaterThan(0);
+    if (painted.original !== null) {
+      expect(painted.original).toBe('rgb(255, 224, 138)');
+    }
+    if (painted.clone !== null) {
+      expect(painted.clone).toBe('rgb(255, 224, 138)');
+    }
+    expect(painted.original !== null || painted.clone !== null).toBe(true);
+
+    await page.mouse.up();
+  });
+
+  test('lazy window parks distant leaves and keeps neighbors hydrated', async ({ page }) => {
+    await openFixture(page, LANDSCAPE);
+    const lazy = await page.evaluate(() => {
+      const slots = [...document.querySelectorAll<HTMLElement>('[data-lazy="full"]')];
+      return {
+        parked: slots.filter((el) => el.dataset.hydrated === '0').length,
+        hydrated: slots.filter((el) => el.dataset.hydrated === '1').length,
+        placeholders: document.querySelectorAll('.lazy-placeholder').length,
+      };
+    });
+    expect(lazy.parked).toBeGreaterThan(0);
+    expect(lazy.hydrated).toBeGreaterThan(0);
+    expect(lazy.placeholders).toBe(lazy.parked);
+  });
+
+  test('engine is ready before the delayed local font finishes', async ({ page }) => {
+    await page.setViewportSize(LANDSCAPE);
+    await page.goto('/');
+    await expect(page.locator('body[data-ready="1"]')).toBeAttached();
+    expect(await page.locator('body').getAttribute('data-font-ready')).toBe('0');
+    await expect.poll(async () => page.locator('body').getAttribute('data-font-ready')).toBe('1');
+  });
+
+  test('a touch pointer is accepted and preventDefault when allowTouchScroll is false', async ({
+    page,
+  }) => {
+    await openFixture(page, PORTRAIT, '?flippingTime=0');
+    const result = await page.evaluate(() => {
+      const block = document.querySelector('#book .stf__block');
+      if (!(block instanceof HTMLElement)) return { prevented: false, state: 'missing' };
+      const rect = block.getBoundingClientRect();
+      const down = new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 7,
+        pointerType: 'touch',
+        button: 0,
+        buttons: 1,
+        clientX: rect.right - 12,
+        clientY: rect.top + rect.height / 2,
+      });
+      block.dispatchEvent(down);
+      const move = new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 7,
+        pointerType: 'touch',
+        button: 0,
+        buttons: 1,
+        clientX: rect.right - 80,
+        clientY: rect.top + rect.height / 2,
+      });
+      block.dispatchEvent(move);
+      const book = (window as unknown as { flipbook: { getState(): string } }).flipbook;
+      return { prevented: down.defaultPrevented, state: book.getState() };
+    });
+    expect(result.prevented).toBe(true);
+    expect(result.state).not.toBe('read');
+  });
 });

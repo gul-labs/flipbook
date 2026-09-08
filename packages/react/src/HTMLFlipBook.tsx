@@ -381,13 +381,23 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
      * instance and the next collection pass called `getBlockElement()` —
      * uncaught `DESTROYED` out of a `useEffect`.
      */
+    const pageHostRef = useRef<HTMLElement | null>(null);
     const retireIfDestroyed = useCallback((engine: PageFlip): boolean => {
       if (!engine.isDestroyed()) return false;
       loadedNodes.current = null;
       if (engineRef.current === engine) {
         engineRef.current = null;
       }
+      const host = pageHostRef.current;
+      const active = typeof document === 'undefined' ? null : document.activeElement;
+      if (host !== null && active instanceof Node && host.contains(active)) {
+        rootRef.current?.focus({ preventScroll: true });
+      }
+      pageHostRef.current = null;
       setPageHost(null);
+      setPageCount(0);
+      setEnginePage(0);
+      setAnnounced('');
       return true;
     }, []);
     /**
@@ -484,6 +494,10 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     useEffect(() => {
       // Skip the first settled render: announcing the spread the reader has not
       // turned to yet is noise, and it fires for every book on the page.
+      if (pageCount <= 0) {
+        setAnnounced('');
+        return;
+      }
       if (!didAnnounce.current) {
         didAnnounce.current = pageCount > 0;
         return;
@@ -587,7 +601,11 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     const handle: FlipBookHandle = useMemo(
       () => ({
-        pageFlip: () => engineRef.current,
+        pageFlip: () => {
+          const engine = engineRef.current;
+          if (!engine || engine.isDestroyed()) return null;
+          return engine;
+        },
         // R-5. These reported nothing when the engine was absent, while
         // `runHandle` reported `notReady` — two of the four methods refusing
         // silently, which is the contradiction D15 exists to remove. The engine
@@ -799,6 +817,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       loadedNodes.current = [];
 
       const block = engine.getBlockElement();
+      pageHostRef.current = block;
       setPageHost(block);
       setHydrated(true);
 
@@ -822,6 +841,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
           if (leaf.parentElement !== block) block.appendChild(leaf);
         }
 
+        pageHostRef.current = null;
         setPageHost(null);
         loadedNodes.current = null;
         if (engineRef.current === engine) {
@@ -991,7 +1011,9 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // Before the collection loads there is no spread yet, and inerting every
       // leaf for that one commit would blank the tab order of a mounting book.
       // Same commit-ordering guard as the load effect — see R-1 there.
-      if (pageCount <= 0 || pages.list.length === 0) return;
+      // Destroy-without-unmount drops the portal; slots go null and a later
+      // children pass must not call readNodes() (DETACHED_PAGE).
+      if (!pageHost || pageCount <= 0 || pages.list.length === 0) return;
       if (pages.gen !== slotGeneration.current) return;
 
       const nodes = readNodes();
@@ -1036,7 +1058,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         // The nodes belong to the consumer; leave none of ours behind.
         for (const node of nodes) node.removeAttribute('inert');
       };
-    }, [pages, visiblePages, pageCount, readNodes]);
+    }, [pages, visiblePages, pageCount, readNodes, pageHost]);
 
     useEffect(() => {
       const engine = engineRef.current;
@@ -1176,12 +1198,12 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       const rtl = props.readingDirection === 'rtl';
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        if (rtl) engine.flipPrev();
-        else engine.flipNext();
+        if (rtl) runRelative('prev');
+        else runRelative('next');
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        if (rtl) engine.flipNext();
-        else engine.flipPrev();
+        if (rtl) runRelative('next');
+        else runRelative('prev');
       } else if (event.key === 'Home') {
         event.preventDefault();
         // D7. `runHandle` REPORTS the refusal. These two used to swallow it

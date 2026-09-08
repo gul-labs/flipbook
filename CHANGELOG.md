@@ -4,6 +4,12 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — `updateSettings` mid-turn nested turns see new geometry
+
+`updateSettings` now stamps host size and Render bounds before abandoning the
+fold, matching F03. A `changeState` listener that `flipNext()`s during a
+width-driven portrait transition lands 0→1, not landscape 0→2.
+
 ### Fixed — destroy-without-unmount no longer crashes the React binding
 
 `pageFlip().destroy()` while `<HTMLFlipBook>` stays mounted left `engineRef`

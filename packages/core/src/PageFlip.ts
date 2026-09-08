@@ -915,7 +915,11 @@ export class PageFlip extends EventObject {
     this.authored = nextAuthored;
     Object.assign(this.setting, next);
 
-    // A changed geometry setting settles an in-flight fold before applying.
+    // A changed geometry setting settles an in-flight fold. Stamp host size
+    // and Render bounds FIRST so abandon's changeState nested `flipNext()`
+    // reads the new orientation/pageWidth (the F03 twin). Then abandon.
+    // Direction-only changes do not move bounds; Render.update is a no-op
+    // invalidate and the explicit abandon below still settles the fold.
     //
     // These are read live in two places that update at different moments.
     // `PageCollection.showSpread` re-mirrors the STATIC spread on the next
@@ -941,13 +945,9 @@ export class PageFlip extends EventObject {
     // state-invalidating path uses (`replacePages`, `clear`, `destroy`).
     //
     // `abandon()` emits `changeState`, so a listener may destroy from inside
-    // it; the check below is why this sits ABOVE the RE-3 hoist rather than
-    // beside `update()`.
-    if (foldInvalidated) {
-      this.abandonInFlightTurn();
-
-      if (this.destroyed) return this.setting;
-    }
+    // it. applyHostSize / update run BEFORE that dispatch so a destroy cannot
+    // skip stamping, and the checks after abandon still refuse to touch a
+    // dead UI.
 
     // updateSettings can run before create() wires render/ui (React effects).
 
@@ -1006,6 +1006,13 @@ export class PageFlip extends EventObject {
     if (this.render) {
       this.update();
     }
+
+    if (this.destroyed) return this.setting;
+
+    if (foldInvalidated) {
+      this.abandonInFlightTurn();
+    }
+
     return this.setting;
   }
 
@@ -1500,13 +1507,17 @@ export class PageFlip extends EventObject {
     const hadWork =
       this.flipController.getCalculation() !== null ||
       this.render.isAnimating() ||
-      this.flipController.getState() !== FlippingState.READ;
+      this.flipController.getState() !== FlippingState.READ ||
+      this.isUserTouch;
 
     if (!hadWork) return false;
 
     this.render.cancelAnimation();
-    this.flipController.abandon();
+    // Drop the old pointer BEFORE abandon. `abandon()` emits READ; a listener
+    // may start a new pointerdown. Resetting afterwards wiped that gesture
+    // (`activePointerId` went null) so the next move never entered USER_FOLD.
     this.resetUserGesture();
+    this.flipController.abandon();
     return true;
   }
 

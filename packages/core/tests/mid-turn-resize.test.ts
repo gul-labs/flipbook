@@ -309,6 +309,27 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getCurrentPageIndex()).toBe(1);
   });
 
+  test('nested flipNext during updateSettings width change uses the new orientation', () => {
+    const fixture = book({ flippingTime: 0 });
+    const app = fixture.book;
+    expect(app.getOrientation()).toBe('landscape');
+    startForwardDrag(app);
+
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested && !app.isDestroyed()) {
+        nested = true;
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+
+    // 300×2 > host 520 → portrait, same split as the observer path above.
+    app.updateSettings({ width: 300 });
+
+    expect(app.getOrientation()).toBe('portrait');
+    expect(app.getCurrentPageIndex()).toBe(1);
+  });
+
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {
     const queued = stubRafQueue();
     const fixture = book({ flippingTime: 1000, respectReducedMotion: false });

@@ -184,7 +184,7 @@ window.setTimeout(() => {
     .finally(() => {
       document.body.dataset['fontReady'] = '1';
     });
-}, 450);
+}, 1500);
 
 if (rtlBtn instanceof HTMLButtonElement) {
   rtlBtn.textContent = `Page progression: ${book.getSettings().readingDirection.toUpperCase()}`;

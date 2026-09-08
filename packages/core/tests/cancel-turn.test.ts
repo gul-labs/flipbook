@@ -168,6 +168,80 @@ describe('F05 — cancelTurn', () => {
     expect(app.getCurrentPageIndex()).toBe(1);
   });
 
+  test('cancels a pressed pointer before it has moved enough to fold', () => {
+    const { book: app } = book({ flippingTime: 0 });
+    const rect = app.getBoundsRect();
+    const y = rect.top + rect.height / 2;
+    pointer(app, 'pointerdown', { clientX: rect.left + rect.width - 6, clientY: y });
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(app.cancelTurn()).toBe(true);
+    pointer(app, 'pointerup', { clientX: rect.left + rect.width - 6, clientY: y });
+    expect(app.getCurrentPageIndex()).toBe(0);
+    expect(app.cancelTurn()).toBe(false);
+  });
+
+  test('READ is announced after capture is released even when a listener throws', () => {
+    const { book: app } = book();
+    const block = app.getBlockElement();
+    const release = vi.spyOn(block, 'releasePointerCapture');
+    startForwardDrag(app);
+    const failure = new Error('consumer failed');
+    let releasedAtRead = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ) {
+        releasedAtRead = release.mock.calls.length > 0;
+        throw failure;
+      }
+    });
+    expect(() => app.cancelTurn()).toThrow(failure);
+    expect(releasedAtRead).toBe(true);
+    expect(release).toHaveBeenCalledWith(1);
+    const rect = app.getBoundsRect();
+    pointer(app, 'pointermove', {
+      clientX: rect.left + rect.width - 140,
+      clientY: rect.top + rect.height / 2,
+      pointerType: 'touch',
+    });
+    expect(app.getState()).toBe(FlippingState.READ);
+  });
+
+  test('a fresh pointer gesture started by a READ listener remains usable', () => {
+    const { book: app } = book({ flippingTime: 0, foldCornerOnHover: false });
+    startForwardDrag(app);
+    const rect = app.getBoundsRect();
+    const y = rect.top + rect.height / 2;
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested) {
+        nested = true;
+        pointer(app, 'pointerdown', {
+          clientX: rect.left + rect.width - 6,
+          clientY: y,
+          pointerId: 2,
+        });
+      }
+    });
+    expect(app.cancelTurn()).toBe(true);
+    pointer(app, 'pointermove', {
+      clientX: rect.left + rect.width - 100,
+      clientY: y,
+      pointerId: 2,
+    });
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+    pointer(app, 'pointermove', {
+      clientX: rect.left + rect.pageWidth * 1.2,
+      clientY: y,
+      pointerId: 2,
+    });
+    pointer(app, 'pointerup', {
+      clientX: rect.left + rect.pageWidth * 1.2,
+      clientY: y,
+      pointerId: 2,
+    });
+    expect(app.getCurrentPageIndex()).toBe(1);
+    expect(app.getState()).toBe(FlippingState.READ);
+  });
+
   test('a changeState listener that destroys the engine is safe', () => {
     const { book: app } = book({ flippingTime: 0 });
     startForwardDrag(app);

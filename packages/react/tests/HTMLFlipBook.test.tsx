@@ -1876,6 +1876,7 @@ describe('F05 — cancelTurn on the React handle', () => {
     act(() => {
       ref.current?.pageFlip()?.destroy();
     });
+    expect(ref.current?.pageFlip()).toBeNull();
     expect(ref.current?.cancelTurn()).toBe(false);
     expect(onTurnRejected).not.toHaveBeenCalled();
   });
@@ -1926,6 +1927,14 @@ describe('F05 — cancelTurn on the React handle', () => {
       view.rerender(
         <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
           {pages('a', 'b', 'c', 'd', 'e')}
+        </HTMLFlipBook>,
+      );
+    }).not.toThrow();
+
+    expect(() => {
+      view.rerender(
+        <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+          {pages('a', 'b', 'c', 'd', 'e', 'f')}
         </HTMLFlipBook>,
       );
     }).not.toThrow();
