@@ -71,12 +71,34 @@ async function runFixtureAssertions(page: Page): Promise<void> {
   expect(box.height).toBeGreaterThan(120);
 
   const ready = await page.evaluate(() => {
-    const book = (window as unknown as { flipbook: { isAnimating(): boolean; getState(): string } })
-      .flipbook;
-    return { animating: book.isAnimating(), state: book.getState() };
+    const book = (
+      window as unknown as {
+        flipbook: {
+          isAnimating(): boolean;
+          getState(): string;
+          getSettings(): {
+            flipOnClick: string;
+            foldCornerOnHover: boolean;
+            respectInteractiveContent: boolean;
+            allowTouchScroll: boolean;
+            pointerInput: string[];
+          };
+        };
+      }
+    ).flipbook;
+    return {
+      animating: book.isAnimating(),
+      state: book.getState(),
+      settings: book.getSettings(),
+    };
   });
   expect(ready.animating).toBe(false);
   expect(ready.state).toBe('read');
+  expect(ready.settings.flipOnClick).toBe('never');
+  expect(ready.settings.foldCornerOnHover).toBe(false);
+  expect(ready.settings.respectInteractiveContent).toBe(true);
+  expect(ready.settings.allowTouchScroll).toBe(false);
+  expect(ready.settings.pointerInput).toEqual(['mouse', 'touch']);
 }
 
 test.describe('F01 live HTML mobile-reader fixture', () => {
@@ -161,6 +183,14 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     await expect
       .poll(async () => page.locator('body').getAttribute('data-highlight'))
       .toMatch(/^sample-en-/);
+
+    const highlight = await page.locator('body').getAttribute('data-highlight');
+    expect(highlight).toBeTruthy();
+    const sheet = page.locator('#highlight-sheet');
+    await expect(sheet).toBeAttached();
+    await expect(sheet).toHaveCount(1);
+    expect(await sheet.evaluate((el) => el.closest('.stf__item') === null)).toBe(true);
+    await expect(sheet).toContainText(CSS.escape(highlight!));
 
     const sameNode = await page.evaluate(async () => {
       const book = (

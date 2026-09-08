@@ -94,8 +94,9 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // Ceiling 63_500 with size-limit twins 63.5 / 15.6 / 17.6 kB.
 // F03 mid-turn resize cancel + F05 `cancelTurn`: measured 63_891 B raw /
 // 15.69 kB brotli / 17.68 kB gzip. Correctness + public API, AGENTS.md §2.
-// Ceiling 63_900 with size-limit twins 63.9 / 15.7 / 17.7 kB.
-const RAW_ALARM_BYTES = 63_900;
+// Destroy-guard on Render.update (reentrancy): 63_930 B. Ceiling 64_000
+// with size-limit twins 64 / 15.7 / 17.7 kB.
+const RAW_ALARM_BYTES = 64_000;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

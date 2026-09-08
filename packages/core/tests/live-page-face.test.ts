@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { installPointerCaptureShims, makeHtmlBook } from './html-book-fixture';
-import { testCollection, testPage } from './engine-access';
+import { testPage } from './engine-access';
 import { Page } from '../src/Page/Page';
 
 const books: Array<{ destroy: () => void }> = [];
@@ -93,26 +93,6 @@ describe('F04 — clone is a snapshot, not a live React tree', () => {
     expect(getComputedStyle(cloneSpan!).backgroundColor).toBe('rgb(255, 224, 138)');
 
     page.hideTemporaryCopy();
-    sheet.remove();
-  });
-
-  test('rewriting the highlight sheet does not rebuild the page collection', () => {
-    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
-    pages[1]!.innerHTML = '<span data-token-id="sample-en-page6-word1">Keep</span>';
-    app.updateFromHtml(pages);
-
-    const collection = testCollection(app);
-    const leaf = app.getPageElement(1);
-
-    const sheet = document.createElement('style');
-    document.head.appendChild(sheet);
-    sheet.textContent = `[data-token-id="${CSS.escape('sample-en-page6-word1')}"] { outline: 1px solid red; }`;
-    sheet.textContent = `[data-token-id="${CSS.escape('sample-en-page6-word3')}"] { outline: 1px solid gold; }`;
-
-    expect(testCollection(app)).toBe(collection);
-    expect(app.getPageElement(1)).toBe(leaf);
-    expect(pages[1]!.childNodes.length).toBeGreaterThan(0);
-
     sheet.remove();
   });
 

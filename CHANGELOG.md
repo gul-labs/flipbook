@@ -21,8 +21,9 @@ All notable changes to this monorepo will be documented in this file.
   handle. Abandons drag / programmed curl / snap-back / hover fold without
   committing; `false` when idle, unloaded, destroyed, or before mount. Not
   finish, pause, resume, or jump. Does not emit `flip`.
-- **Size.** F03+F05 spent ~0.51 kB raw (63.38 → 63.89 kB). Ceilings raised
-  63.5→63.9 / 15.6→15.7 / 17.6→17.7 kB (correctness + public API, AGENTS.md §2).
+- **Size.** F03+F05 plus the destroy-guard spent ~0.55 kB raw (63.38 → 63.93 kB).
+  Ceilings raised 63.5→64 / 15.6→15.7 / 17.6→17.7 kB (correctness + public API,
+  AGENTS.md §2).
 
 ### Docs / package metadata (OSS polish)
 
