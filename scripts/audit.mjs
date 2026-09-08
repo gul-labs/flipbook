@@ -31,9 +31,9 @@
  * one request can succeed while the next is degraded. Riding along in the same
  * request is what makes a "clean" answer provable.
  *
- * Version matching is done by the registry, not here. We send name -> versions
- * and read back the advisories it says apply. This gate adds trust verification,
- * it does not reimplement vulnerability matching.
+ * The registry matches requested versions to advisories. Only the canary
+ * package needs a local range check to distinguish the injected version from
+ * real installed versions; all other package matches come from the registry.
  *
  * THREE OUTCOMES, NEVER CONFLATED
  * -------------------------------
@@ -54,6 +54,7 @@ import { createRequire } from 'node:module';
 
 const require_ = createRequire(import.meta.url);
 const yaml = require_('yaml');
+const semver = require_('semver');
 
 const LEVELS = ['info', 'low', 'moderate', 'high', 'critical'];
 
@@ -160,7 +161,15 @@ async function queryWithCanary(payload) {
 
   const data = await response.json();
   const canaryHits = data?.[CANARY.name];
-  const canaryFlagged = Array.isArray(canaryHits) && canaryHits.some((a) => Boolean(a?.severity));
+  const canaryFlagged =
+    Array.isArray(canaryHits) &&
+    canaryHits.some(
+      (a) =>
+        LEVELS.includes(a?.severity) &&
+        typeof a?.vulnerable_versions === 'string' &&
+        semver.validRange(a.vulnerable_versions) !== null &&
+        semver.satisfies(CANARY.version, a.vulnerable_versions),
+    );
 
   if (!canaryFlagged) {
     warn(
@@ -242,9 +251,22 @@ if (!advisories) {
   undetermined(`npm's advisory service returned no trustworthy response after ${RETRIES} attempts`);
 }
 
-// The canary is ours, not a finding in this workspace.
-const canaryIsReal = installed.get(CANARY.name)?.has(CANARY.version) ?? false;
-if (!canaryIsReal) delete advisories[CANARY.name];
+// Only the injected VERSION is synthetic. Another installed lodash version
+// can match the same advisory, so deleting the entire package hides real bugs.
+const realCanaryVersions = [...(installed.get(CANARY.name) ?? [])];
+advisories[CANARY.name] = advisories[CANARY.name].filter((advisory) => {
+  if (realCanaryVersions.length === 0) return false;
+  const range = advisory.vulnerable_versions;
+  if (typeof range !== 'string' || semver.validRange(range) === null) {
+    undetermined('the canary package advisory has no valid vulnerable version range');
+  }
+  return realCanaryVersions.some((version) => {
+    if (semver.valid(version) === null) {
+      undetermined(`cannot match installed ${CANARY.name}@${version} to its advisory`);
+    }
+    return semver.satisfies(version, range, { includePrerelease: true });
+  });
+});
 
 const findings = [];
 for (const [name, list] of Object.entries(advisories)) {

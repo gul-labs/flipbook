@@ -21,6 +21,7 @@ import {
   INHERIT_PAGE_INDEX,
   SEED_OPENING_INDEX,
   SET_ORIENTATION_STYLE,
+  SET_SPREAD_INDEX,
 } from './internal';
 import type { PageCollection } from './Collection/PageCollection';
 import { HTMLPageCollection } from './Collection/HTMLPageCollection';
@@ -1483,8 +1484,16 @@ export class PageFlip extends EventObject {
    * @param {Orientation} newOrientation - New page orientation (portrait, landscape)
    */
   public [ADOPT_ORIENTATION](newOrientation: Orientation): void {
+    // Finish wrapper measurement and align the spread cursor before READ can
+    // start another turn. The old cursor indexes a different spread table.
     this.uiOrThrow[SET_ORIENTATION_STYLE](newOrientation);
+    const pages = this.pages;
+    const spread = pages?.getSpreadIndexByPage(pages.getCurrentPageIndex());
+    if (pages && spread != null) pages[SET_SPREAD_INDEX](spread);
+    this.abandonInFlightTurn();
+    if (this.isDestroyed()) return;
     this.update();
+    if (this.isDestroyed() || this.render?.getOrientation() !== newOrientation) return;
     this.dispatch('changeOrientation', { orientation: newOrientation });
   }
 

@@ -336,6 +336,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     } = props;
 
     const rootRef = useRef<HTMLDivElement>(null);
+    const controlsRef = useRef<HTMLDivElement>(null);
     const engineRef = useRef<PageFlip | null>(null);
     const onPagesChangedHold = useRef(onPagesChanged);
     onPagesChangedHold.current = onPagesChanged;
@@ -1201,9 +1202,8 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // `aria-keyshortcuts="ArrowLeft ArrowRight Home End"` promises.
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 
-      // A keydown only reaches this handler by bubbling up from
-      // `document.activeElement`. If that is not the root itself, focus is on
-      // some focusable thing INSIDE a page, and arrow keys belong to it.
+      // The root and this book's own navigation controls share shortcuts.
+      // Other descendants (including a nested book) own their own keys.
       //
       // This used to ask `FLIPBOOK_INTERACTIVE_SELECTOR` instead — a list built
       // for POINTER targets (what should not start a fold). As a keyboard rule
@@ -1212,7 +1212,9 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // widget that is focusable without one of those roles is not on it, so
       // the book stole its arrow keys and called `preventDefault`. Focus is the
       // authority on who owns a key press; a selector is not.
-      if (event.target !== event.currentTarget) return;
+      const fromOwnControls =
+        event.target instanceof Node && controlsRef.current?.contains(event.target) === true;
+      if (event.target !== event.currentTarget && !fromOwnControls) return;
 
       const rtl = props.readingDirection === 'rtl';
       if (event.key === 'ArrowRight') {
@@ -1316,6 +1318,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         */}
         {controls !== 'none' ? (
           <div
+            ref={controlsRef}
             data-flipbook-controls={controls === 'visible' ? 'visible' : ''}
             style={controls === 'visible' ? undefined : VISUALLY_HIDDEN_UNTIL_FOCUS}
           >

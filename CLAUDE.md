@@ -24,7 +24,7 @@ pnpm test               # vitest run, both projects
 pnpm build              # tsup per package (see caveat below)
 pnpm typecheck          # tsc --noEmit per package
 pnpm lint               # eslint flat config, repo-wide
-pnpm size               # size-limit on the packed html engine (64.2 kB raw / 15.8 kB brotli / 17.8 kB gzip)
+pnpm size               # size-limit on the packed html engine (66 kB raw / 16.1 kB brotli / 18.2 kB gzip)
 node ./scripts/check-isolated-types.mjs   # pnpm-isolated consumer type fixture
 ```
 
@@ -182,10 +182,12 @@ tears the book down mid-animation.
 
 ## Known gaps in the current state
 
-- **Bundle size.** The packed HTML engine is **64.07 kB raw / 15.72 kB brotli /
-  17.74 kB gzip** against ceilings of **64.2 / 15.8 / 17.8 kB**, re-ratcheted
-  after F03 mid-turn resize cancel + F05 `cancelTurn`. An
-  agent may not raise ceilings without cause (AGENTS.md §2). Re-measure with
+- **Bundle size.** The audited packed HTML engine is **65.846 kB raw / 16.018 kB
+  brotli / 18.127 kB gzip** against owner-approved ceilings of **66 / 16.1 /
+  18.2 kB** (2026-09-08). The earlier f91a654 measurement was inaccurate. An
+  agent may not raise ceilings without cause (AGENTS.md §2). These compressed
+  byte counts use Node zlib defaults; size-limit reports 18.07 kB gzip with its
+  compression settings. Re-measure with
   `pnpm size` before quoting these. The §5 target of 35 kB minified is
   **retired**: upstream `page-flip@2.0.7` is itself 44,058 B minified (measured
   from its published tarball), so that target asked this fork to be ~20% smaller

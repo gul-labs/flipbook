@@ -98,7 +98,10 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // with size-limit twins 64 / 15.7 / 17.7 kB.
 // Adopt orientation before nested flipNext (portrait step): 64_065 B.
 // Ceiling 64_200 with size-limit twins 64.2 / 15.8 / 17.8 kB.
-const RAW_ALARM_BYTES = 64_200;
+// 2026-09-08 audit: f91a654 clean build was 65_650 B, not the claimed 64.16 kB.
+// Rebase/restyle before cancellation adds 196 B (65_846 / 16_018 / 18_127 B).
+// Owner approved 66 / 16.1 / 18.2 kB ceilings in the audit conversation.
+const RAW_ALARM_BYTES = 66_000;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

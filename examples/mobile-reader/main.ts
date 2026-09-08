@@ -22,7 +22,8 @@ const tokenIds = [...root.querySelectorAll<HTMLElement>('[data-token-id]')]
   .filter((id): id is string => Boolean(id));
 
 const params = new URLSearchParams(window.location.search);
-const reducedMotionOn = params.get('reducedMotion') !== '0';
+let reducedMotionOn = params.get('reducedMotion') !== '0';
+const animatedFlippingTime = Number(params.get('flippingTime') ?? 700);
 
 const book = new PageFlip(root, {
   width: 400,
@@ -34,7 +35,7 @@ const book = new PageFlip(root, {
   maxHeight: 680,
   usePortrait: true,
   hardCovers: true,
-  flippingTime: Number(params.get('flippingTime') ?? 700),
+  flippingTime: reducedMotionOn ? 0 : animatedFlippingTime,
   pageBackground: '#fffaf0',
   injectStyles: false,
   flipOnClick: 'never',
@@ -43,7 +44,7 @@ const book = new PageFlip(root, {
   allowTouchScroll: false,
   pointerInput: ['mouse', 'touch'],
   readingDirection: params.get('rtl') === '1' ? 'rtl' : 'ltr',
-  respectReducedMotion: reducedMotionOn,
+  respectReducedMotion: true,
 });
 
 (window as unknown as { flipbook: PageFlip }).flipbook = book;
@@ -135,10 +136,11 @@ rtlBtn?.addEventListener('click', () => {
 });
 
 motionBtn?.addEventListener('click', () => {
-  const next = !book.getSettings().respectReducedMotion;
-  book.updateSettings({ respectReducedMotion: next });
+  reducedMotionOn = !reducedMotionOn;
+  book.cancelTurn();
+  book.updateSettings({ flippingTime: reducedMotionOn ? 0 : animatedFlippingTime });
   if (motionBtn instanceof HTMLButtonElement) {
-    motionBtn.textContent = `Reduced motion: ${next ? 'on' : 'off'}`;
+    motionBtn.textContent = `Reduced motion: ${reducedMotionOn ? 'on' : 'off'}`;
   }
 });
 
@@ -190,5 +192,5 @@ if (rtlBtn instanceof HTMLButtonElement) {
   rtlBtn.textContent = `Page progression: ${book.getSettings().readingDirection.toUpperCase()}`;
 }
 if (motionBtn instanceof HTMLButtonElement) {
-  motionBtn.textContent = `Reduced motion: ${book.getSettings().respectReducedMotion ? 'on' : 'off'}`;
+  motionBtn.textContent = `Reduced motion: ${reducedMotionOn ? 'on' : 'off'}`;
 }

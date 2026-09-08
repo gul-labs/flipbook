@@ -27,6 +27,7 @@ const CANARY_ADVISORY = {
   id: 1523,
   severity: 'high',
   title: 'Command Injection in lodash',
+  vulnerable_versions: '<4.17.21',
   url: 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm',
 };
 
@@ -171,6 +172,36 @@ await withService('healthy', {}, async (url) => {
     `exit=${real.code} out=${real.out.trim()}`,
   );
 });
+
+// The injected canary must not hide other installed versions of lodash.
+for (const version of ['4.17.19', '4.17.21']) {
+  await withService('healthy', {}, async (url) => {
+    const result = await runGate({ url, lockfile: makeLockfile([`lodash@${version}`]) });
+    const vulnerable = version === '4.17.19';
+    check(
+      `lodash ${version}: filter by advisory range, not exact canary equality`,
+      result.code === (vulnerable ? 1 : 0) &&
+        (vulnerable ? /VULNERABLE/.test(result.out) : /CLEAN/.test(result.out)),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  });
+}
+
+// A non-empty severity string alone is not evidence the canary was checked.
+for (const broken of [
+  { ...CANARY_ADVISORY, severity: 'unknown' },
+  { ...CANARY_ADVISORY, vulnerable_versions: '>=99.0.0' },
+  { ...CANARY_ADVISORY, vulnerable_versions: undefined },
+]) {
+  await withService('healthy', { lodash: [broken] }, async (url) => {
+    const result = await runGate({ url, lockfile: cleanLock });
+    check(
+      'malformed or nonmatching canary is UNDETERMINED',
+      /UNDETERMINED/.test(result.out) && !/CLEAN/.test(result.out),
+      result.out.trim(),
+    );
+  });
+}
 
 // The regression that motivated the gate: never launder "could not check" into
 // "clean", in any of the shapes npm actually produced.

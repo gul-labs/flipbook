@@ -831,19 +831,12 @@ export class Render {
           previous.height !== rect.height ||
           previous.pageWidth !== rect.pageWidth);
 
-      // Stamp the new box AND orientation before abandon. Nested `flipNext()`
-      // from `changeState` reads `getOrientation()` / `getRect()` into a new
-      // turn; leaving orientation on landscape made a portrait resize commit
-      // a two-leaf step (0→2). Inner `ADOPT_ORIENTATION` restyle must not
-      // abandon that nested turn (`adoptingOrientation`).
+      // Adopt the wrapper and spread table before announcing cancellation.
+      // Its restyle can measure another box; the inner update must finish
+      // before a READ listener captures geometry for a replacement turn.
       this.boundsRect = rect;
       if (orientationChanged) {
         this.orientation = orientation;
-      }
-
-      if (boundsChanged && !this.adoptingOrientation) {
-        this.app[INVALIDATE_FOLD_GEOMETRY]();
-        if (this.app.isDestroyed()) return;
       }
 
       if (orientationChanged) {
@@ -853,7 +846,10 @@ export class Render {
         } finally {
           this.adoptingOrientation = false;
         }
+      } else if (boundsChanged && !this.adoptingOrientation) {
+        this.app[INVALIDATE_FOLD_GEOMETRY]();
       }
+      if (this.app.isDestroyed()) return;
     }
 
     if (this.rightPage !== null) {

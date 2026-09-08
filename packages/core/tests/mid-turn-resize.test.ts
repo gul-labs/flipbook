@@ -318,6 +318,83 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getCurrentPageIndex()).toBe(1);
   });
 
+  for (const source of ['observer', 'settings'] as const) {
+    for (const initialPage of [2, 4] as const) {
+      test(`nonzero ${initialPage} remains the origin of a nested next during ${source} rotation`, () => {
+        const fixture = book({ pageCount: 10, initialPage, flippingTime: 0 });
+        const app = fixture.book;
+        startForwardDrag(app);
+        let nested = false;
+        app.on('changeState', (e) => {
+          if (e.data.state === FlippingState.READ && !nested) {
+            nested = true;
+            expect(app.getVisiblePages()).toEqual([initialPage]);
+            expect(app.flipNext()).toBe(true);
+          }
+        });
+        if (source === 'observer') resizeHost(fixture, 260);
+        else app.updateSettings({ width: 300 });
+        expect(nested).toBe(true);
+        expect(app.getCurrentPageIndex()).toBe(initialPage + 1);
+        expect(app.getVisiblePages()).toEqual([initialPage + 1]);
+      });
+    }
+  }
+
+  test('nested turn captures the final wrapper geometry after orientation restyling', () => {
+    const fixture = book({ pageCount: 10, initialPage: 2, flippingTime: 800 });
+    const app = fixture.book;
+    const block = app.getBlockElement();
+    const wrapper = block.parentElement!;
+    Object.defineProperty(block, 'offsetHeight', {
+      configurable: true,
+      get: () => (wrapper.classList.contains('--portrait') ? 300 : 150),
+    });
+    app.update();
+    startForwardDrag(app);
+    let captured: ReturnType<PageFlip['getBoundsRect']> | null = null;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && captured === null) {
+        captured = { ...app.getBoundsRect() };
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+    sizeElement(fixture.host, 260, 300);
+    Object.defineProperty(block, 'offsetWidth', { configurable: true, get: () => 260 });
+    fireResizeObservers();
+    expect(captured).not.toBeNull();
+    expect(captured).toEqual(app.getBoundsRect());
+    expect(app.isAnimating()).toBe(true);
+  });
+
+  test('portrait to landscape cancellation rebases before a nested animated next', () => {
+    const queued = stubRafQueue();
+    const fixture = book({
+      pageCount: 10,
+      hostWidth: 260,
+      initialPage: 4,
+      respectReducedMotion: false,
+    });
+    const app = fixture.book;
+    flushQueuedRaf(queued, 0);
+    startForwardDrag(app);
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested) {
+        nested = true;
+        expect(app.getVisiblePages()).toEqual([4, 5]);
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+    resizeHost(fixture, 520);
+    expect(app.isAnimating()).toBe(true);
+    // The loop was parked: its first resumed frame establishes startedAt.
+    for (const cb of queued.splice(0)) cb(0);
+    flushQueuedRaf(queued, 1_000_000);
+    expect(app.getCurrentPageIndex()).toBe(6);
+    expect(app.getVisiblePages()).toEqual([6, 7]);
+  });
+
   test('nested flipNext during updateSettings width change uses the new orientation', () => {
     const fixture = book({ flippingTime: 0 });
     const app = fixture.book;

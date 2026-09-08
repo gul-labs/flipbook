@@ -161,7 +161,7 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
         window as unknown as { flipbook: { getCurrentPageIndex(): number } }
       ).flipbook.getCurrentPageIndex(),
     );
-    expect(afterFold).toBe(1);
+    expect(afterFold).toBe(2);
 
     await page.locator('#prev').click();
     await expect
@@ -177,7 +177,7 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
         window as unknown as { flipbook: { getCurrentPageIndex(): number } }
       ).flipbook.getCurrentPageIndex(),
     );
-    expect(afterPrev).toBe(0);
+    expect(afterPrev).toBe(1);
 
     const sameNodes = await page.evaluate(() => {
       const before = (window as unknown as { __pageNodes: Element[] }).__pageNodes;
@@ -304,7 +304,7 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
         (nodes) => nodes.filter((node) => (node.textContent ?? '').includes('Inside cover')).length,
       );
     expect(insideCopies).toBe(2);
-    await expect(page.locator('#book .stf__item:not([data-stf-clone])')).toContainText(
+    await expect(page.locator('#book [data-page-id="cover"]:not([data-stf-clone])')).toContainText(
       'The River Stone',
     );
 
@@ -318,15 +318,6 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     await page.locator('#next').click();
     await expect.poll(async () => page.locator('body').getAttribute('data-page')).toBe('2');
 
-    await page.evaluate(() => {
-      const token = 'sample-en-page3-word1';
-      const sheet = document.getElementById('highlight-sheet');
-      if (sheet) {
-        sheet.textContent = `[data-token-id="${token}"] { background: #ffe08a; }`;
-      }
-      document.body.dataset['highlight'] = token;
-    });
-
     const box = await page.locator('#book .stf__block').boundingBox();
     if (!box) throw new Error('no book box');
     const mid = box.y + box.height / 2;
@@ -336,7 +327,13 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     await settle(page);
 
     const painted = await page.evaluate(() => {
-      const token = document.body.dataset['highlight'] ?? '';
+      // Change the shared rule AFTER cloning, then observe both faces in the
+      // same task. The running narration clock cannot race these assertions.
+      const token = 'sample-en-page3-word2';
+      const sheet = document.getElementById('highlight-sheet');
+      if (!sheet) throw new Error('missing highlight sheet');
+      sheet.textContent = `[data-token-id="${token}"] { background: #ffe08a; }`;
+      document.body.dataset['highlight'] = token;
       const original = document.querySelector(
         `.stf__item:not([data-stf-clone]) [data-token-id="${token}"]`,
       );
@@ -349,7 +346,7 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
       };
     });
     expect(painted.cloneCount).toBeGreaterThan(0);
-    expect(painted.token).toBe('sample-en-page3-word1');
+    expect(painted.token).toBe('sample-en-page3-word2');
     expect(painted.original).toBe('rgb(255, 224, 138)');
     expect(painted.clone).toBe('rgb(255, 224, 138)');
 
@@ -495,4 +492,33 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
     expect(after).toBe(before);
     await page.mouse.up();
   });
+});
+
+test('explicit reduced motion changes actual turns and still honors the OS', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openFixture(page, PORTRAIT, '?reducedMotion=1&flippingTime=800');
+  const next = () =>
+    page.evaluate(() => {
+      const app = (
+        window as unknown as {
+          flipbook: {
+            flipNext(): boolean;
+            isAnimating(): boolean;
+            cancelTurn(): boolean;
+          };
+        }
+      ).flipbook;
+      const accepted = app.flipNext();
+      const animating = app.isAnimating();
+      app.cancelTurn();
+      return { accepted, animating };
+    });
+  expect(await next()).toEqual({ accepted: true, animating: false });
+  await page.locator('#motion-toggle').click();
+  expect(await next()).toEqual({ accepted: true, animating: true });
+  await page.locator('#motion-toggle').click();
+  expect(await next()).toEqual({ accepted: true, animating: false });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.locator('#motion-toggle').click();
+  expect(await next()).toEqual({ accepted: true, animating: false });
 });

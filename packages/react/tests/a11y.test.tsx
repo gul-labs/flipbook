@@ -368,3 +368,75 @@ describe('the injected stylesheet does not disable pinch-to-zoom', () => {
     }
   });
 });
+
+describe('book-owned controls share navigation shortcuts', () => {
+  useMeasuredLayout();
+  for (const direction of ['ltr', 'rtl'] as const) {
+    for (const control of ['prev', 'next'] as const) {
+      test(`${control} keeps arrow/Home/End navigation in ${direction}`, async () => {
+        blockSize = PORTRAIT_BLOCK;
+        const ref = createRef<FlipBookHandle>();
+        const { container } = render(
+          <HTMLFlipBook
+            ref={ref}
+            width={200}
+            height={300}
+            flippingTime={0}
+            readingDirection={direction}
+            controls="visible"
+          >
+            {pages('a', 'b', 'c', 'd')}
+          </HTMLFlipBook>,
+        );
+        await waitFor(() => expect(ref.current?.pageFlip()?.isReady()).toBe(true));
+        const button = container.querySelector<HTMLButtonElement>(
+          `[data-flipbook-control="${control}"]`,
+        )!;
+        button.focus();
+        expect(document.activeElement).toBe(button);
+        expect(
+          fireEvent.keyDown(button, { key: direction === 'ltr' ? 'ArrowRight' : 'ArrowLeft' }),
+        ).toBe(false);
+        await waitFor(() => expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(1));
+        expect(document.activeElement).toBe(button);
+        expect(fireEvent.keyDown(button, { key: 'End' })).toBe(false);
+        await waitFor(() => expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(3));
+        expect(
+          fireEvent.keyDown(button, { key: direction === 'ltr' ? 'ArrowLeft' : 'ArrowRight' }),
+        ).toBe(false);
+        await waitFor(() => expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(2));
+        expect(fireEvent.keyDown(button, { key: 'Home' })).toBe(false);
+        await waitFor(() => expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0));
+        for (const modifier of [
+          { altKey: true },
+          { ctrlKey: true },
+          { metaKey: true },
+          { shiftKey: true },
+        ]) {
+          expect(fireEvent.keyDown(button, { key: 'End', ...modifier })).toBe(true);
+        }
+        expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0);
+      });
+    }
+  }
+
+  test('an authored page button marked like a control still owns its keys', async () => {
+    blockSize = PORTRAIT_BLOCK;
+    const ref = createRef<FlipBookHandle>();
+    const { getByText } = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        <div key="a">
+          <button data-flipbook-control="next" type="button">
+            Content control
+          </button>
+        </div>
+        <div key="b">b</div>
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => expect(ref.current?.pageFlip()?.isReady()).toBe(true));
+    const button = getByText('Content control');
+    button.focus();
+    expect(fireEvent.keyDown(button, { key: 'ArrowRight' })).toBe(true);
+    expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0);
+  });
+});
