@@ -1840,4 +1840,99 @@ describe('F05 — cancelTurn on the React handle', () => {
     expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0);
     expect(onPageChange).not.toHaveBeenCalled();
   });
+
+  test('captured cancelTurn after unmount returns false and does not throw', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const cancel = ref.current!.cancelTurn;
+    view.unmount();
+    expect(cancel()).toBe(false);
+  });
+
+  test('destroy() without unmount: cancelTurn is false and does not fire onTurnRejected', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const onTurnRejected = vi.fn();
+    render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={0}
+        onTurnRejected={onTurnRejected}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    act(() => {
+      ref.current?.pageFlip()?.destroy();
+    });
+    expect(ref.current?.cancelTurn()).toBe(false);
+    expect(onTurnRejected).not.toHaveBeenCalled();
+  });
+
+  test('after a remount-key rebuild, cancelTurn talks to the new engine', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const before = ref.current?.pageFlip();
+    expect(before).toBeTruthy();
+
+    view.rerender(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0} hardCovers>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()).not.toBe(before);
+      expect(ref.current?.pageFlip()?.isDestroyed()).toBe(false);
+    });
+    expect(before?.isDestroyed()).toBe(true);
+    expect(ref.current?.cancelTurn()).toBe(false);
+    expect(ref.current?.pageFlip()?.flipNext()).toBe(true);
+  });
+
+  test('destroy() without unmount then a children change does not throw DESTROYED', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+
+    act(() => {
+      ref.current?.pageFlip()?.destroy();
+    });
+
+    expect(() => {
+      view.rerender(
+        <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+          {pages('a', 'b', 'c', 'd', 'e')}
+        </HTMLFlipBook>,
+      );
+    }).not.toThrow();
+
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()).toBeNull();
+    });
+    expect(ref.current?.cancelTurn()).toBe(false);
+  });
 });

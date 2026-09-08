@@ -376,6 +376,21 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     /** Page nodes currently loaded into the engine. */
     const loadedNodes = useRef<HTMLElement[] | null>(null);
     /**
+     * `pageFlip().destroy()` without unmount is a supported handle path (P3).
+     * The engine-effect cleanup never runs, so `engineRef` would keep a dead
+     * instance and the next collection pass called `getBlockElement()` —
+     * uncaught `DESTROYED` out of a `useEffect`.
+     */
+    const retireIfDestroyed = useCallback((engine: PageFlip): boolean => {
+      if (!engine.isDestroyed()) return false;
+      loadedNodes.current = null;
+      if (engineRef.current === engine) {
+        engineRef.current = null;
+      }
+      setPageHost(null);
+      return true;
+    }, []);
+    /**
      * The rendered leaves, STAMPED with the generation whose refs fill
      * `slotsRef`. R-1b.
      *
@@ -819,7 +834,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     useEffect(() => {
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || retireIfDestroyed(engine)) return;
       // MIN-6. Typed `LiveSetting` at the call site, so D19's compile-time
       // fence applies to the binding too. Passing the `FlipOptions` variable
       // skipped excess-property checking, which meant the one call site that
@@ -877,6 +892,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     useEffect(() => {
       const engine = engineRef.current;
+      if (!engine || retireIfDestroyed(engine)) return;
 
       // R-1. GUARD BEFORE READING.
       //
@@ -891,7 +907,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // which fills the slots has happened: `pages` is state, so it only holds
       // the new list after that commit, and the refs fire during it. Softening
       // the throw instead would have thrown away the whole point of D1.
-      if (!engine || !pageHost || pages.list.length === 0) return;
+      if (!pageHost || pages.list.length === 0) return;
       // R-1b. Identity of the stamp, not equality of lengths. `pages` is state,
       // so it only carries this generation after the commit that fired the refs
       // filling `slotsRef` for it.
@@ -943,7 +959,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // not a turn on either side of the boundary. `initialPage` is part of the
       // remount key, so changing it rebuilds rather than being ignored (D6).
       setEnginePage(engine.getCurrentPageIndex());
-    }, [pages, pageHost, bindHandlers, remountKey, readNodes]);
+    }, [pages, pageHost, bindHandlers, remountKey, readNodes, retireIfDestroyed]);
 
     /*
      * Every leaf is in the DOM at all times, stacked, so a link or button on a
@@ -1132,7 +1148,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
       if (!useKeyboard) return;
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || engine.isDestroyed()) return;
 
       // A MODIFIED arrow is somebody else's shortcut, and swallowing it (with
       // `preventDefault`, no less) takes a documented browser behaviour away

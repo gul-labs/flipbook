@@ -4,6 +4,15 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — destroy-without-unmount no longer crashes the React binding
+
+`pageFlip().destroy()` while `<HTMLFlipBook>` stays mounted left `engineRef`
+pointing at a dead engine. The next children update called `getBlockElement()`
+and threw `DESTROYED` out of an effect. The binding now retires that instance
+(nulls the ref, drops the portal target). Keyboard turns also ignore a
+destroyed engine. `cancelTurn` after unmount / destroy-without-unmount stays
+`false` and does not emit `onTurnRejected`.
+
 ### Added — mobile live-HTML fixture, mid-turn resize cancel, `cancelTurn`
 
 - **F01.** `examples/mobile-reader/` is a live-HTML picture-book fixture (cover,
