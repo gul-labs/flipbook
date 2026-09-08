@@ -106,6 +106,20 @@ export const EMIT_TURN_PROGRESS = Symbol('flipbook.emitTurnProgress');
  */
 export const ADOPT_ORIENTATION = Symbol('flipbook.adoptOrientation');
 
+/**
+ * Settles an in-flight fold because the measured book box changed.
+ *
+ * `Render.update`'s seam, called only after `computeBounds` reports an
+ * observed box that is not the one the current `FlipCalculation` was built
+ * against. Public, it would let a consumer cancel a turn the renderer has not
+ * actually remeasured — the same class of lie `ADOPT_ORIENTATION` exists to
+ * prevent, on the other axis.
+ *
+ * The engine, not the renderer, owns `cancelAnimation()` + `abandon()`: Render
+ * does not hold the flip controller.
+ */
+export const INVALIDATE_FOLD_GEOMETRY = Symbol('flipbook.invalidateFoldGeometry');
+
 // ---------------------------------------------------------------------------
 // PageCollection — called by PageFlip and Flip
 // ---------------------------------------------------------------------------

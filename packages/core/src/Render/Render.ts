@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { at } from '../arrayAccess';
-import { GET_UI, GET_COLLECTION, ADOPT_ORIENTATION } from '../internal';
+import { GET_UI, GET_COLLECTION, ADOPT_ORIENTATION, INVALIDATE_FOLD_GEOMETRY } from '../internal';
 import type { PageFlip } from '../PageFlip';
 import type { Point, PageRect, RectPoints } from '../BasicTypes';
 import { FlipDirection } from '../Flip/Flip';
@@ -814,6 +814,23 @@ export class Render {
     // still let the subclass run the left/right `setOrientation` stamps below.
     // Bounds/orientation adopt are gated; the stamps always run.
     if (observed || this.orientation === null) {
+      const previous = this.boundsRect;
+      const boundsChanged =
+        observed &&
+        previous !== null &&
+        (previous.left !== rect.left ||
+          previous.top !== rect.top ||
+          previous.width !== rect.width ||
+          previous.height !== rect.height ||
+          previous.pageWidth !== rect.pageWidth);
+
+      // Cancel a live curl before the new box is stamped. FlipCalculation is
+      // frozen at turn start; adopting new bounds while it is live splits the
+      // static spread from the fold. At rest this is a no-op (no calc).
+      if (boundsChanged) {
+        this.app[INVALIDATE_FOLD_GEOMETRY]();
+      }
+
       this.boundsRect = rect;
 
       if (this.orientation !== orientation) {

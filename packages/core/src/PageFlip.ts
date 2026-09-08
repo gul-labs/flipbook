@@ -13,6 +13,7 @@ import {
   GET_FLIP,
   VISIBLE_PAGES,
   ADOPT_ORIENTATION,
+  INVALIDATE_FOLD_GEOMETRY,
   DROP_POINTER_GESTURE,
   EMIT_PAGE_INDEX,
   EMIT_STATE,
@@ -357,6 +358,18 @@ export class PageFlip extends EventObject {
   public update(): void {
     this.render?.update();
     this.pages?.show();
+  }
+
+  /**
+   * Abandon an in-flight drag, programmed curl, snap-back or hover fold without
+   * committing its target.
+   *
+   * Not finish, pause, resume, or jump. The committed page is unchanged.
+   * Returns `true` when work was cancelled, `false` when idle, not yet loaded,
+   * or destroyed. Repeated calls are harmless. Does not emit `flip`.
+   */
+  public cancelTurn(): boolean {
+    return this.abandonInFlightTurn();
   }
 
   /**
@@ -930,10 +943,8 @@ export class PageFlip extends EventObject {
     // `abandon()` emits `changeState`, so a listener may destroy from inside
     // it; the check below is why this sits ABOVE the RE-3 hoist rather than
     // beside `update()`.
-    if (foldInvalidated && this.render !== null) {
-      this.render.cancelAnimation();
-      this.flipController?.abandon();
-      this.resetUserGesture();
+    if (foldInvalidated) {
+      this.abandonInFlightTurn();
 
       if (this.destroyed) return this.setting;
     }
@@ -1463,6 +1474,40 @@ export class PageFlip extends EventObject {
     this.uiOrThrow[SET_ORIENTATION_STYLE](newOrientation);
     this.update();
     this.dispatch('changeOrientation', { orientation: newOrientation });
+  }
+
+  /**
+   * See {@link INVALIDATE_FOLD_GEOMETRY}. Cancels an in-flight curl when the
+   * renderer has adopted a different observed box, then leaves the caller to
+   * stamp the new geometry.
+   */
+  public [INVALIDATE_FOLD_GEOMETRY](): void {
+    this.abandonInFlightTurn();
+  }
+
+  /**
+   * Drop a live fold or animation without committing it.
+   *
+   * One implementation for every geometry-invalidating path (`updateSettings`,
+   * a mid-turn resize, the public cancel wrapper). Returns whether anything
+   * was actually in flight.
+   */
+  private abandonInFlightTurn(): boolean {
+    if (this.destroyed || this.render === null || this.flipController === null) {
+      return false;
+    }
+
+    const hadWork =
+      this.flipController.getCalculation() !== null ||
+      this.render.isAnimating() ||
+      this.flipController.getState() !== FlippingState.READ;
+
+    if (!hadWork) return false;
+
+    this.render.cancelAnimation();
+    this.flipController.abandon();
+    this.resetUserGesture();
+    return true;
   }
 
   /**

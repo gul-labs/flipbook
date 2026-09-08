@@ -23,7 +23,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ADOPT_ORIENTATION, GET_UI } from '../src/internal';
+import { ADOPT_ORIENTATION, GET_UI, INVALIDATE_FOLD_GEOMETRY } from '../src/internal';
 
 import { PageFlipError } from '../src/errors';
 import { FlipDirection } from '../src/Flip/Flip';
@@ -86,6 +86,7 @@ function makeHarness(
     [GET_UI]: () => ({ getDistElement: () => box }),
     getSettings: () => setting,
     [ADOPT_ORIENTATION]: updateOrientation,
+    [INVALIDATE_FOLD_GEOMETRY]: () => undefined,
   } as unknown as PageFlip;
 
   const render = new TestRender(app, setting, document.createElement('div'));
