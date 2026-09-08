@@ -181,7 +181,7 @@ canvas fixtures, or a 3.1 canvas binding from these notes.
 - **`ImageFlipBook`** in `@gullabs/react-flipbook` — separate component, no
   children, `images: ImagePageLeaf[]`, semantic alt mirror. Tries ADR
   descriptors then falls back to `string[]` until core Phase 2 lands.
-- **Read-only bug hunt** recorded in `docs/BUG_HUNT_2026-08-29.md` (failed-image
+- **Read-only bug hunt** (2026-08-29; git history) (failed-image
   spinner routes, A3 still live, no blank leaf yet). No core patches from this
   lane.
 
@@ -736,7 +736,7 @@ work it carried. Recorded here rather than left implicit._
 
 ### Fixed — canvas renderer (first-class work, ahead of the phased plan)
 
-Found by the audit in `docs/CANVAS_FIRST_CLASS.md`, then reviewed by Codex
+Found by the pre-3.0 canvas audit (git history), then reviewed by Codex
 (`task-mtey3c3u-wlsgsc`, REQUEST_CHANGES) and corrected.
 
 Every fix has a unit test observed failing with the fix reverted. That claim was

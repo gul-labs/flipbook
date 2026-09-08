@@ -105,9 +105,6 @@ export default defineConfig(
       '**/playwright-report/**',
       '**/test-results/**',
       '.craftsman/**',
-      // Consumer-report evidence: standalone Playwright scripts whose page
-      // functions run in the browser; not part of the lint surface.
-      'docs/consumer-report-assets/**',
       '.remember/**',
       '.claude/**',
       'fixtures/**',
@@ -160,7 +157,7 @@ export default defineConfig(
       '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
       '@typescript-eslint/prefer-nullish-coalescing': 'error',
       '@typescript-eslint/prefer-optional-chain': 'error',
-      // Phase C (docs/QUALITY_BAR_CLIMB.md): honest after NUIA + lifecycle guards.
+      // Phase C (docs/QUALITY.md): honest after NUIA + lifecycle guards.
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/strict-boolean-expressions': [
         'error',
@@ -177,7 +174,7 @@ export default defineConfig(
       '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
       '@typescript-eslint/restrict-template-expressions': 'off',
       '@typescript-eslint/require-await': 'warn',
-      // Phase A (docs/QUALITY_BAR_CLIMB.md): block any-leakage at error.
+      // Phase A (docs/QUALITY.md): block any-leakage at error.
       '@typescript-eslint/no-unsafe-assignment': 'error',
       '@typescript-eslint/no-unsafe-call': 'error',
       '@typescript-eslint/no-unsafe-member-access': 'error',

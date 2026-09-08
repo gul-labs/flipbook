@@ -76,10 +76,10 @@ Two packages, one direction of dependency: `react` → `core` (`workspace:*`). C
 
 The former abstract/concrete pairs (`UI`/`HTMLUI`, `Page`/`HTMLPage`,
 `Render`/`HTMLRender`, and `PageCollection`/`HTMLPageCollection`) are
-**collapsed** — see `docs/ABSTRACTION-BOUNDARY.md` and `docs/PLAN-3.1.md`. The
-abstract bases were never a renderer seam: `Render` holds ~78% of the renderer
-and is DOM-bound (`offsetWidth` measurement, a `navigator.userAgent` sniff,
-pixel-space conversion). Do not re-open inheritance at these lines.
+**collapsed** — see `docs/ABSTRACTION-BOUNDARY.md`. The abstract bases were
+never a renderer seam: `Render` holds ~78% of the renderer and is DOM-bound
+(`offsetWidth` measurement, a `navigator.userAgent` sniff, pixel-space
+conversion). Do not re-open inheritance at these lines.
 
 `PageFlip` answers questions rather than handing out its collaborators:
 `getVisiblePages()`, `canTurn(dir)`, `getBlockElement()`, `getPageElement(i)`,
@@ -192,7 +192,7 @@ tears the book down mid-animation.
   **retired**: upstream `page-flip@2.0.7` is itself 44,058 B minified (measured
   from its published tarball), so that target asked this fork to be ~20% smaller
   than the thing it forks while doing strictly more. See
-  `docs/QUALITY_BAR_CLIMB.md` for the measured comparison, and `AGENTS.md` §2
+  `docs/QUALITY.md` for the measured comparison, and `AGENTS.md` §2
   for the policy: dead code always goes, working code never goes to buy bytes,
   and a correctness fix may spend the headroom **and say so**.
 - **TypeScript is pinned below latest.** 6.0.3, not 7.0.2, because

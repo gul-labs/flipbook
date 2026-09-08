@@ -4,7 +4,7 @@ Ship bar for **3.0.0** is locked in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT
 What follows is the **post-3.0** backlog — additive or internal only. Anything
 that needs a breaking change goes to the owner first.
 
-## Near term (3.1-shaped)
+## Near term
 
 Tracked in detail in [`docs/TODO.md`](./docs/TODO.md):
 
@@ -15,19 +15,21 @@ Tracked in detail in [`docs/TODO.md`](./docs/TODO.md):
   position, `pageLabel`, shadow / paper-base tokens, `allowTextSelection`
 - OpenSSF Scorecard Action + public coverage badge
 - (done) Sponsor button + GitHub Issue Forms
+- (done) Class-pair collapses, frame discipline, `turnProgress`
+- (done) Mobile live-HTML F01–F05
 
 ## Later
 
 - Headless-controller renderer seam → optional WebGL path
   ([`docs/WEBGL_RENDERER.md`](./docs/WEBGL_RENDERER.md) — deferred by owner)
-- Collapse remaining abstract class pairs (`Page`/`HTMLPage`, …) for bundle
-  bytes ([`docs/ABSTRACTION-BOUNDARY.md`](./docs/ABSTRACTION-BOUNDARY.md))
+- Binding-owned leaf hosts (4.0-shaped DOM ownership)
 - Vue / Svelte adapters — positioning choice, not a default
+- Correlated turn lifecycle events (F06) — locked-surface amendment
 
 ## Not planned
 
 - Storybook, Discord, commitlint, all-contributors as first work — ornaments
-  until a hosted flip demo exists (see `.local/oss-readiness.md` working note)
+  until a hosted flip demo exists
 - DCO / CLA — inbound=outbound in `CONTRIBUTING.md` is enough
 - Canvas / `loadFromImages` — removed in 3.0 (ADR 0002)
 

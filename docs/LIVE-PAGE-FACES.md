@@ -1,8 +1,8 @@
 # Live page faces during a curl
 
-Status: implemented (F04 of `docs/MOBILE_LIVE_HTML_PROPOSAL.md`). This is the
-honest contract for HTML books whose pages contain real text, not a stack of
-page rasters.
+Status: implemented. Honest contract for HTML books whose pages contain real
+text, not a stack of page rasters. Related limits:
+[KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
 
 ## What the engine does
 

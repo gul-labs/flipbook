@@ -772,7 +772,7 @@ describe('lazy mounting', () => {
    * effect once `visiblePages` joined BookSnapshot / the binding). Reproduced
    * alone with a two-line mount of five pages + lazyRadius=1 — no flip needed.
    * Unskip when the binding stops looping; do NOT weaken the assertion.
-   * See docs/reviews/test-round-product-bugs-2026-08-30.md.
+   * Historical BUG-1: lazyRadius infinite re-render / heap exhaustion.
    */
   test('the lazy window still advances when the page turns', async () => {
     // Controlled page (not usePageFlip) — the contract under test is the

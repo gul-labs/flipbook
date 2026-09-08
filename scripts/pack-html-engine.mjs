@@ -85,7 +85,7 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // Raised 57_000 -> 62_000 by the OWNER for the code-complete round, alongside
 // the size-limit ceilings in packages/core/package.json. Both numbers exist and
 // both must move together; a mismatch fails the build with the other one's text,
-// which is how this was found. See docs/ROUND-CODE-COMPLETE.md.
+// which is how this was found. Keep pack-script and size-limit ceilings in lockstep.
 // 62_000 held post-B3.1 (measured 61_761 B). B3.2 delta-clear + copyOwner
 // B3.2 ~62.62 kB; B3.3–B3.4 elision helpers → 62_754 B. Ceiling 63_000 with
 // size-limit twins 63 / 15.5 / 17.4 kB.

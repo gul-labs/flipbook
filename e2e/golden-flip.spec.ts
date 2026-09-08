@@ -185,7 +185,7 @@ test.describe('golden mid-flip frames (§8.2)', () => {
   });
 
   /**
-   * PLAN-3.1 B2 — single mid-fold frames held under the pointer. Regression
+   * Frame-discipline B2 — single mid-fold frames held under the pointer. Regression
    * net for Campaign B3 frame-discipline opts; must stay pixel-stable.
    */
   test.describe('mid-fold held (B2)', () => {

@@ -5,7 +5,7 @@
  * consumer cannot do it from `@gullabs/flipbook-core`, it is not in this file.
  *
  * Findings that fail a claim or block a product use case are recorded in
- * `docs/reviews/test-writing-product-bugs-2026-08-30.md`.
+ * historical product-bug findings from the test-writing round.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test } from 'vitest';

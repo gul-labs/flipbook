@@ -1,5 +1,5 @@
 /**
- * Four defects from `docs/CANVAS_FIRST_CLASS.md`:
+ * Four historical canvas/HTML pointer defects (I-series audit):
  *
  *  - U2: `pointercancel` was bound to `onPointerUp`, so an OS-level pointer
  *        cancellation ran the SWIPE branch and could COMMIT a page turn the

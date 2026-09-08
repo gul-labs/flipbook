@@ -1,98 +1,78 @@
-# TODO — the post-3.0 backlog
+# TODO — open backlog
 
-The canonical list of work that passed triage but sits **below the 3.0 ship
-bar** defined by `docs/API-CONTRACT.md` §7. Everything here is additive or
-internal — nothing on this list may reopen the locked surface; a 3.1 item that
-turns out to need a breaking change goes back to the owner first.
+Canonical list of work that sits **below the locked 3.0 surface**
+([API-CONTRACT.md](./API-CONTRACT.md)). Everything here is additive or internal.
+A item that needs a breaking change goes to the owner first.
 
-Sources: the API contract's own deferrals (§6), the consumer P-findings
-(`docs/reviews/test-writing-product-bugs-2026-08-30.md`), and the
-example-authoring B/H findings (`.local/example-authoring-findings.md`).
+Accepted constraints that are **not** work items live in
+[KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
 
-## API additions (3.1, additive)
+## API additions (additive)
 
-- [ ] **`validateFlipOptions(options): FlipSetting`** (P8) — a pure, exported
-      preflight sharing `Settings.resolve`'s rules, so a CMS/config pipeline
-      can reject bad book JSON in CI without a DOM. Until then the supported
-      answer is "construction throws `INVALID_SETTING` with a `setting` key".
-- [ ] **Controls styling seam** (P-doc §5) — `controlsClassName` or a
-      `renderControls` slot so design systems paint the H4 buttons without
-      forking a11y behavior. 3.0 answer: `controls="visible"` + the stable
-      `data-flipbook-kb` / `data-flipbook-controls` attributes (documented in
-      the README styling section).
+- [ ] **`validateFlipOptions(options): FlipSetting`** — pure preflight sharing
+      `Settings.resolve` rules, so a CMS/config pipeline can reject bad book
+      JSON in CI without a DOM. Until then: construction throws
+      `INVALID_SETTING` with a `setting` key.
+- [ ] **Controls styling seam** — `controlsClassName` or a `renderControls`
+      slot so design systems paint the built-in buttons without forking a11y.
+      3.0 answer: `controls="visible"` + stable `data-flipbook-kb` /
+      `data-flipbook-controls` attributes.
 - [ ] **Spread-space position** — `getSpreadCount()` / current spread index on
-      the façade, for scrubbers and PDF-style pagers that need position in
-      spread space rather than leaf space.
-- [x] **`turnProgress` / `onTurnProgress`** — drive a scrubber thumb during an
-      animated turn without rAF-polling `getState()` (PLAN-3.1 Campaign C,
-      2026-08-31).
-- [ ] **`<FlipPage>` wrapper component** (B2's optional half) — an inner-slot
-      page primitive so consumers never learn the leaf-root layout rule the
-      hard way.
+      the façade, for scrubbers and PDF-style pagers.
+- [ ] **`<FlipPage>` wrapper** — inner-slot page primitive so consumers never
+      learn the leaf-root layout rule the hard way (style an inner wrapper).
 - [ ] **`pageLabel` first-class API** — front-matter numbering ("iv") for the
       live region and chrome. 3.0 recipe: `liveRegionText`.
-- [ ] **Shadow color tokens** (`--stf-shadow-*`) — brand the fold shadows the
-      same way `--stf-paper` brands the paper.
-- [ ] **`--stf-paper-base` token** — the opaque ground under the paper is a
-      hard `#fff` today. Opaque `pageBackground` values cover it entirely, so
-      it only shows through TRANSLUCENT paper — where a dark-themed book
-      compositing over white gets washed out. A base token (validated opaque
-      at the boundary, structural guarantee preserved) lets dark themes keep
-      translucent paper. Additive, so 3.1.
-- [ ] **Built-in center seam / gutter shading** — an opt-in spine at the
-      landscape gutter (`--stf-gutter-*` tokens or a `spine` setting).
-      story-book overlays its own `BookSpine` today (the §8 recipe); every real
-      book has one, so first-class support belongs in the engine eventually.
+- [ ] **Shadow color tokens** (`--stf-shadow-*`) — brand fold shadows the way
+      `--stf-paper` brands the paper.
+- [ ] **`--stf-paper-base` token** — opaque ground under translucent paper is
+      hard `#fff` today; dark themes wash out. Additive token (validated
+      opaque) preserves the structural opacity guarantee.
+- [ ] **Built-in center seam / gutter shading** — opt-in landscape spine
+      (`--stf-gutter-*` or a `spine` setting). Consumers overlay their own
+      today (see API contract spine recipe).
 - [ ] **`allowTextSelection` setting** — `.stf__block` sets `user-select: none`
-      for drag correctness, which is right for picture books and wrong for
-      full-HTML text pages a reader may want to copy from. Needs design (drag
-      vs. selection arbitration), so 3.1.
-- [ ] **`centerClosedBook` option** (Puddlebend contract ask §6) — the engine
-      parks a closed book in the right half of the stage and a lone hard back
-      cover in the left half; the consumer hand-builds the slide-to-center and
-      a following floor shadow for both ends. The engine knows exactly when
-      those states hold. At minimum: a documented recipe with `changeState` +
-      `visiblePages`.
-- [x] **Frame discipline budget** (Puddlebend Issue 3) — PLAN-3.1 Campaign B
-      (2026-08-31): resting redraw **0** writes; mid-fold measured **48**
-      (was **106**); working-set identity + mid-fold goldens. Memoize
-      applyEngineStyle, delta clear/`lastShown`, zIndex + classList elision.
-      R2 (`foldFill` memo) fixed same day — mid-fold now **44**. Remaining
-      residue is R1 only (see `docs/FINDINGS-3.1-RESIDUAL.md`): soft static
-      leaves still enter `simpleDraw` every rAF (string build, no DOM writes)
-      and shadow nodes take full `cssText` per fold frame (values genuinely
-      change per frame, so a memo buys ~nothing mid-turn). Deferred until a
-      real device profile shows it matters — the counts no longer scale with
-      page count and the B1 budget test caps drift.
-- [ ] **Binding-owned leaf hosts** (Puddlebend Issue 2 residue) — the engine
-      still stamps classes/inline styles on consumer-rendered roots (two-owner
-      DOM). It did not cause the remount flicker, but engine-owned host
-      elements wrapping consumer content remain the cleaner ownership story.
-      Breaking for DOM-selector consumers, so 4.0-shaped; design first.
+      for drag correctness; wrong for full-HTML text pages a reader may copy
+      from. Needs design (drag vs selection arbitration).
+- [ ] **`centerClosedBook` option** — engine parks a closed book in the right
+      half of the stage; consumers hand-build slide-to-center. At minimum: a
+      documented recipe with `changeState` + `visiblePages`.
+- [ ] **Correlated turn lifecycle events (F06)** — optional `turnStarted` /
+      terminal pair with a turn id for narration hosts. Touches the locked
+      event map; needs contract amendment + changeset. Not required for basic
+      WebView rendering. See [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
 
-## Internal hygiene (no observable change)
+## Internal / architecture
 
-- [x] **Collapse the three remaining class pairs** — `Page`/`HTMLPage`,
-      `UI`/`HTMLUI`, `Render`/`HTMLRender` — PLAN-3.1 Campaign A (2026-08-31).
-      Concrete `UI` / `Page` / `Render`; size re-ratcheted after collapse.
-- [ ] **Headless-controller renderer seam** — the real extension point for a
-      second (WebGL) renderer, per `docs/WEBGL_RENDERER.md`. Do not publish
-      `Render` instead.
-- [ ] **Give back bundle bytes** — the owner-raised ceilings (62/16/18 kB) were
-      explicitly a loan; re-ratchet after the class collapses land.
+- [ ] **Headless-controller renderer seam** — real extension point for a
+      second (WebGL) renderer per [WEBGL_RENDERER.md](./WEBGL_RENDERER.md).
+      Do not publish `Render` instead.
+- [ ] **Binding-owned leaf hosts** — engine still stamps classes/inline styles
+      on consumer-rendered roots (two-owner DOM). Cleaner ownership is
+      4.0-shaped and breaking for DOM-selector consumers; design first.
+- [ ] **Frame-time gate** — Playwright fixture measuring p95 rAF during a curl
+      (see [QUALITY.md](./QUALITY.md)). Bytes are gated; frame cost is not.
 
 ## Examples & repo polish
 
-- [ ] **`scripts/update-golden-linux.sh` `$IMAGE…` under `set -u`** — line 35
-      expands `$IMAGE…` as one parameter name (Unicode ellipsis). Brace as
-      `${IMAGE}…`. Found during PLAN-3.1 B2; worked around manually for
-      baselines. See `docs/FINDINGS-3.1-RESIDUAL.md` §7.
-- [ ] **Next.js example gets a real `flippingTime`** (H7) — the App Router demo
-      currently proves "instant page swap", not the product. Do with the docs
-      round if e2e permits.
-- [ ] **Split the vanilla demo from the e2e harness** (B8/H9) —
-      `window.flipbook` and `?golden=1` are harness, not consumer teaching
-      material. Low priority.
-- [ ] **Keep the P3 regression test green** — out-of-band
-      `pageFlip()!.destroy()` then `flipNext()` must reject loudly; the fix is
-      in, the test guards it (`consumer-audit.test.ts`).
+- [ ] **Next.js example gets a real `flippingTime`** — the App Router demo
+      currently proves instant page swap more than the product.
+- [ ] **Split the vanilla demo from the e2e harness** — `window.flipbook` and
+      `?golden=1` are harness, not consumer teaching material. Low priority.
+- [ ] **Hosted demo + docs site** — #1 public-product gap for a visual library.
+- [ ] **StackBlitz / one-click repro starters**
+- [ ] **Firefox in Playwright e2e** (Chromium + WebKit already gate)
+- [ ] **OpenSSF Scorecard Action + public coverage badge**
+
+## Done recently (do not re-open)
+
+Kept only so agents do not rediscover closed work:
+
+- [x] Class-pair collapses (`Page`/`UI`/`Render` + collection) — 2026-08-31
+- [x] Frame-discipline campaign (resting redraw 0 writes; mid-fold ~44) — 2026-08-31
+- [x] `turnProgress` / `onTurnProgress` — 2026-08-31
+- [x] Façade methods (`getVisiblePages`, `canTurn`, …) and barrel prune
+- [x] Mobile live-HTML F01–F05 (fixture, resize cancel, live faces, docs)
+- [x] Mobile audit A1–A4 (orientation reentrancy, controls keyboard, audit
+      canary filter, reduced-motion demo label)
+- [x] `foldFill` size-1 memo; Linux golden `$IMAGE` brace

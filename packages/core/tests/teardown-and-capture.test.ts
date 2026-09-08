@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * X4, X5, X6, X7 from `docs/CANVAS_FIRST_CLASS.md`.
+ * X4, X5, X6, X7 (historical teardown/capture audit).
  *
  * Four defects that only show up at the seams — a teardown that races the
  * render loop, a pointer capture that failed, a `destroy()` that reshuffles the
