@@ -184,13 +184,18 @@ test.describe('F01 live HTML mobile-reader fixture', () => {
       .poll(async () => page.locator('body').getAttribute('data-highlight'))
       .toMatch(/^sample-en-/);
 
-    const highlight = await page.locator('body').getAttribute('data-highlight');
-    expect(highlight).toBeTruthy();
-    const sheet = page.locator('#highlight-sheet');
-    await expect(sheet).toBeAttached();
-    await expect(sheet).toHaveCount(1);
-    expect(await sheet.evaluate((el) => el.closest('.stf__item') === null)).toBe(true);
-    await expect(sheet).toContainText(CSS.escape(highlight!));
+    const highlight = await page.evaluate(() => {
+      const token = document.body.dataset['highlight'] ?? '';
+      const sheet = document.getElementById('highlight-sheet');
+      return {
+        token,
+        sheetText: sheet?.textContent ?? '',
+        sheetOutsidePages: sheet !== null && sheet.closest('.stf__item') === null,
+      };
+    });
+    expect(highlight.token).toMatch(/^sample-en-/);
+    expect(highlight.sheetOutsidePages).toBe(true);
+    expect(highlight.sheetText).toContain(`[data-token-id="${highlight.token}"]`);
 
     const sameNode = await page.evaluate(async () => {
       const book = (
