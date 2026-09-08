@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mobile live HTML reader fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #ece7dc;
+        color: #1b1712;
+        font-family: Georgia, 'Times New Roman', serif;
+      }
+      body {
+        padding: 16px;
+      }
+      h1 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0 0 8px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 0 0 12px;
+      }
+      .toolbar button,
+      .toolbar label {
+        font:
+          14px/1.2 system-ui,
+          sans-serif;
+      }
+      .toolbar button {
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      .status {
+        font:
+          12px/1.4 ui-monospace,
+          monospace;
+        color: #333;
+      }
+      #host {
+        resize: both;
+        overflow: hidden;
+        width: min(100%, 920px);
+        min-width: 280px;
+        min-height: 240px;
+        height: 560px;
+        border: 1px solid #c9c1b2;
+        background: #d8d2c4;
+      }
+      #book {
+        width: 100%;
+        height: 100%;
+      }
+      .page {
+        box-sizing: border-box;
+      }
+      .page-inner {
+        box-sizing: border-box;
+        height: 100%;
+        padding: 28px 32px;
+        overflow: hidden;
+      }
+      .cover .page-inner,
+      .back-cover .page-inner {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        background: #3d2a1c;
+        color: #f4e6c8;
+      }
+      .plate .page-inner {
+        background: #f3ead2;
+      }
+      .story .page-inner {
+        background: #fffaf0;
+      }
+      .rtl-page .page-inner {
+        background: #f7f1e4;
+        font-size: 1.35rem;
+        line-height: 1.8;
+      }
+      .illustration svg {
+        width: 100%;
+        height: auto;
+        max-height: 100%;
+      }
+      .story-text {
+        font-family: sans-serif;
+        font-size: 1.05rem;
+        line-height: 1.55;
+      }
+      body[data-font-ready='1'] .story-text {
+        font-family: StoryDisplay, Georgia, serif;
+      }
+      .long-copy {
+        font-size: 0.95rem;
+      }
+      [data-token-id].narrating,
+      [data-token-id] {
+        border-radius: 2px;
+      }
+      .lazy-placeholder {
+        color: #7a7266;
+        font-style: italic;
+      }
+    </style>
+    <!--
+      Shared highlight rules live OUTSIDE every page subtree so cloneNode copies
+      still match. The clock only rewrites this sheet; it never mutates tokens.
+    -->
+    <style id="highlight-sheet"></style>
+  </head>
+  <body>
+    <h1>Live HTML picture book (synthetic fixture)</h1>
+    <div class="toolbar">
+      <button type="button" id="prev">Previous</button>
+      <button type="button" id="next">Next</button>
+      <button type="button" id="rtl-toggle">Page progression: LTR</button>
+      <button type="button" id="motion-toggle">Reduced motion: on</button>
+      <label>
+        Host width
+        <input id="host-width" type="range" min="300" max="1100" value="920" />
+      </label>
+      <span class="status" id="status">page —</span>
+    </div>
+    <div id="host">
+      <div id="book">
+        <div class="page cover" data-leaf="0" data-page-id="cover" data-density="hard">
+          <div class="page-inner">
+            <p>A picture book</p>
+            <h2>The River Stone</h2>
+            <p>Live HTML fixture — not a page image</p>
+          </div>
+        </div>
+        <div class="page plate" data-leaf="1" data-page-id="inside-cover">
+          <div class="page-inner">
+            <p>Inside cover</p>
+            <p>English edition · public synthetic text</p>
+            <p>No customer material, remote fonts, or audio.</p>
+          </div>
+        </div>
+        <div class="page story" data-leaf="2" data-page-id="story-open">
+          <div class="page-inner">
+            <p class="story-text" data-lazy="full">
+              <span data-token-id="sample-en-page3-word1">Mara</span>
+              <span data-token-id="sample-en-page3-word2">found</span>
+              <span data-token-id="sample-en-page3-word3">a</span>
+              <span data-token-id="sample-en-page3-word4">smooth</span>
+              <span data-token-id="sample-en-page3-word5">stone</span>
+              <span data-token-id="sample-en-page3-word6">where</span>
+              <span data-token-id="sample-en-page3-word7">the</span>
+              <span data-token-id="sample-en-page3-word8">river</span>
+              <span data-token-id="sample-en-page3-word9">bent</span>
+              <span data-token-id="sample-en-page3-word10">around</span>
+              <span data-token-id="sample-en-page3-word11">the</span>
+              <span data-token-id="sample-en-page3-word12">willows.</span>
+            </p>
+          </div>
+        </div>
+        <div class="page story" data-leaf="3" data-page-id="long-paragraph">
+          <div class="page-inner">
+            <p class="story-text long-copy" data-lazy="full">
+              She sat with the stone in both hands and read the river the way other people read a
+              letter. Each eddy was a comma. Each snag of reed was a pause she could almost hear.
+              Downstream a heron waited as if the next sentence had to be earned, and the long
+              afternoon kept offering the same paragraph again: water over rock, rock under water,
+              light breaking on the surface without ever belonging to it. Mara turned the stone and
+              the story did not become a picture of a page. It stayed words, wet and particular,
+              waiting for a voice that was not here yet.
+            </p>
+          </div>
+        </div>
+        <div class="page illustration" data-leaf="4" data-page-id="large-illustration">
+          <div class="page-inner" data-lazy="full">
+            <svg viewBox="0 0 400 300" role="img" aria-label="A river bending around a stone">
+              <rect width="400" height="300" fill="#c5dce8" />
+              <path
+                d="M0 160 C80 120 140 200 220 170 C300 140 340 210 400 180 L400 300 L0 300 Z"
+                fill="#4f7f9a"
+              />
+              <ellipse cx="210" cy="188" rx="42" ry="22" fill="#6b5a4a" />
+              <ellipse cx="206" cy="182" rx="18" ry="8" fill="#8a7663" />
+              <path d="M40 70 C70 40 90 90 60 110" fill="#2f5d3a" />
+              <path d="M320 50 C360 30 380 90 340 110" fill="#2f5d3a" />
+            </svg>
+          </div>
+        </div>
+        <div class="page plate" data-leaf="5" data-page-id="text-plate">
+          <div class="page-inner" data-lazy="full">
+            <p class="story-text">
+              The plate behind these words is paper colour, not a flattened screenshot of a spread.
+              Highlighting uses stable token ids, not a second copy of the book.
+            </p>
+            <p>
+              <span data-token-id="sample-en-page6-word1">Keep</span>
+              <span data-token-id="sample-en-page6-word2">the</span>
+              <span data-token-id="sample-en-page6-word3">stone</span>
+              <span data-token-id="sample-en-page6-word4">dry</span>
+              <span data-token-id="sample-en-page6-word5">until</span>
+              <span data-token-id="sample-en-page6-word6">evening.</span>
+            </p>
+          </div>
+        </div>
+        <div class="page rtl-page" data-leaf="6" data-page-id="rtl-sample" lang="ar" dir="rtl">
+          <div class="page-inner">
+            <p>الحجر في النهر لا يسبح، لكنه يعلّم الماء أين يمر.</p>
+            <p lang="en" dir="ltr">
+              Short Arabic sample. Page progression is a separate control from this
+              <code>dir="rtl"</code> text.
+            </p>
+          </div>
+        </div>
+        <div class="page story" data-leaf="7" data-page-id="story-close">
+          <div class="page-inner" data-lazy="full">
+            <p class="story-text">
+              When the light went, Mara put the stone back where the bend remembered it. The river
+              kept the paragraph. She kept the pause.
+            </p>
+          </div>
+        </div>
+        <div class="page plate" data-leaf="8" data-page-id="inside-back">
+          <div class="page-inner">
+            <p>Inside back cover</p>
+            <p>Neighboring spreads stay hydrated; distant leaves collapse to a placeholder.</p>
+          </div>
+        </div>
+        <div class="page back-cover" data-leaf="9" data-page-id="back-cover" data-density="hard">
+          <div class="page-inner">
+            <p>The River Stone</p>
+            <p>End</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

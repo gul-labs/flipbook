@@ -19,7 +19,7 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "build": "pnpm -r --filter './packages/*' build",
-    "build:examples": "pnpm --filter example-vanilla build && pnpm --filter example-vite-react build && pnpm --filter example-nextjs build",
+    "build:examples": "pnpm --filter example-vanilla build && pnpm --filter example-vite-react build && pnpm --filter example-nextjs build && pnpm --filter example-mobile-reader build",
     "build:all": "pnpm build && pnpm build:examples",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --if-present typecheck",
     "typecheck:all": "tsc --noEmit -p tsconfig.json && pnpm -r --if-present typecheck",

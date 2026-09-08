@@ -25,9 +25,10 @@ export default defineConfig({
   webServer: {
     // The example typechecks against the core package's built `dist`, so the
     // packages must be built here: the CI e2e job runs on a fresh runner and
-    // does not inherit the `verify` job's build output.
+    // does not inherit the `verify` job's build output. Vanilla is :4173;
+    // the live-HTML fixture is :4174 (`scripts/serve-e2e.mjs`).
     command:
-      'pnpm build && pnpm --filter example-vanilla build && pnpm --filter example-vanilla preview --host 127.0.0.1 --port 4173',
+      'pnpm build && pnpm --filter example-vanilla build && pnpm --filter example-mobile-reader build && node ./scripts/serve-e2e.mjs',
     port: 4173,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
