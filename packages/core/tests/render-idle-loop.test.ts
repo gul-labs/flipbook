@@ -449,6 +449,7 @@ function probeOn(dist: HTMLElement): ProbeRender {
     getSettings: () => setting,
     [ADOPT_ORIENTATION]: () => undefined,
     [INVALIDATE_FOLD_GEOMETRY]: () => undefined,
+    isDestroyed: () => false,
   } as unknown as PageFlipType;
 
   return new ProbeRender(app, setting, dist);

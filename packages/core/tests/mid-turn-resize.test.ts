@@ -195,6 +195,74 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(testFlip(app)?.getCalculation() ?? null).toBeNull();
   });
 
+  test('responsive same-orientation resize changes pageWidth and still cancels', () => {
+    const fixture = book({
+      sizing: 'responsive',
+      minWidth: 100,
+      maxWidth: 400,
+      minHeight: 100,
+      maxHeight: 500,
+      hostWidth: 520,
+      hostHeight: 400,
+    });
+    const app = fixture.book;
+    expect(app.getOrientation()).toBe('landscape');
+    const beforeWidth = app.getBoundsRect().pageWidth;
+    expect(beforeWidth).toBeGreaterThan(200);
+
+    startForwardDrag(app);
+    expect(testFlip(app)?.getCalculation()).not.toBeNull();
+
+    resizeHost(fixture, 480, 400);
+
+    expect(app.getOrientation()).toBe('landscape');
+    expect(app.getBoundsRect().pageWidth).not.toBe(beforeWidth);
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(testFlip(app)?.getCalculation() ?? null).toBeNull();
+    expect(app.getCurrentPageIndex()).toBe(0);
+  });
+
+  test('orientation-changing resize does not throw if a listener destroys', () => {
+    const fixture = book();
+    const app = fixture.book;
+    startForwardDrag(app);
+    app.on('changeState', () => {
+      if (!app.isDestroyed()) app.destroy();
+    });
+
+    expect(() => resizeHost(fixture, 260)).not.toThrow();
+    expect(app.isDestroyed()).toBe(true);
+  });
+
+  test('a listener that starts a new turn after cancel sees the adopted pageWidth', () => {
+    const fixture = book({
+      sizing: 'responsive',
+      flippingTime: 0,
+      minWidth: 100,
+      maxWidth: 400,
+      minHeight: 100,
+      maxHeight: 500,
+      hostWidth: 520,
+      hostHeight: 400,
+    });
+    const app = fixture.book;
+    startForwardDrag(app);
+
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested && !app.isDestroyed()) {
+        nested = true;
+        app.flipNext();
+      }
+    });
+
+    resizeHost(fixture, 480, 400);
+
+    expect(app.isDestroyed()).toBe(false);
+    expect(app.getCurrentPageIndex()).toBe(2);
+    expect(app.getBoundsRect().pageWidth).toBe(240);
+  });
+
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {
     const fixture = book({ flippingTime: 1000 });
     const app = fixture.book;

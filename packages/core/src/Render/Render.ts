@@ -824,14 +824,18 @@ export class Render {
           previous.height !== rect.height ||
           previous.pageWidth !== rect.pageWidth);
 
-      // Cancel a live curl before the new box is stamped. FlipCalculation is
-      // frozen at turn start; adopting new bounds while it is live splits the
-      // static spread from the fold. At rest this is a no-op (no calc).
+      // Stamp the new box FIRST. `abandon()` emits `changeState` synchronously,
+      // and a listener may `flipNext()` or `destroy()`. Nested `Flip.start()`
+      // reads `getRect()` into a new FlipCalculation — if that still sees the
+      // old box, the F03 split (static spread vs frozen calc) lands on the
+      // *new* turn. `reset()` nulls calc before `setState`, so no frame can
+      // draw a live fold against the adopted box. At rest this is a no-op.
+      this.boundsRect = rect;
+
       if (boundsChanged) {
         this.app[INVALIDATE_FOLD_GEOMETRY]();
+        if (this.app.isDestroyed()) return;
       }
-
-      this.boundsRect = rect;
 
       if (this.orientation !== orientation) {
         this.orientation = orientation;

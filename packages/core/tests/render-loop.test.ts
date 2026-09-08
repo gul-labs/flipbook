@@ -87,6 +87,7 @@ function makeHarness(
     getSettings: () => setting,
     [ADOPT_ORIENTATION]: updateOrientation,
     [INVALIDATE_FOLD_GEOMETRY]: () => undefined,
+    isDestroyed: () => false,
   } as unknown as PageFlip;
 
   const render = new TestRender(app, setting, document.createElement('div'));
