@@ -1,5 +1,11 @@
 # @gullabs/flipbook-core
 
+## 3.2.0
+
+### Minor Changes
+
+- b5594c3: Mobile live-HTML: cancel in-flight turns on resize (`cancelTurn`), stamp-then-abandon `updateSettings`, pointer-capture steal handling, and a React `destroy()` handle that retires a still-mounted book.
+
 ## 3.1.0
 
 ### Minor Changes
