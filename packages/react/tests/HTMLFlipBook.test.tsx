@@ -1796,3 +1796,48 @@ describe('onTurnProgress (Campaign C)', () => {
     }
   });
 });
+
+describe('F05 — cancelTurn on the React handle', () => {
+  test('returns false before mount and when idle', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    expect(ref.current?.cancelTurn()).toBeUndefined();
+
+    render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    expect(ref.current?.cancelTurn()).toBe(false);
+  });
+
+  test('abandons an in-flight turn without onPageChange', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const onPageChange = vi.fn();
+    render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={800}
+        respectReducedMotion={false}
+        onPageChange={onPageChange}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+
+    act(() => {
+      expect(ref.current?.pageFlip()?.flipNext()).toBe(true);
+      expect(ref.current?.cancelTurn()).toBe(true);
+    });
+
+    expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0);
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+});

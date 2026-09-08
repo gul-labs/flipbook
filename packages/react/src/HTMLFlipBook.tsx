@@ -582,6 +582,11 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         flipPrev: (corner?: FlipCorner) => runRelative('prev', corner),
         turnToPage: (page: number) => runHandle(page, false),
         flipToPage: (page: number) => runHandle(page, true),
+        cancelTurn: () => {
+          const engine = engineRef.current;
+          if (!engine || engine.isDestroyed()) return false;
+          return engine.cancelTurn();
+        },
       }),
       [runHandle, runRelative],
     );

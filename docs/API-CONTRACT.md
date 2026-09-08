@@ -110,6 +110,11 @@ Two symmetric triads, locked:
 | **animated** | `flipToPage(p, corner?)` _(renamed from `flip`)_ | `flipNext(corner?)` | `flipPrev(corner?)` |
 | **instant**  | `turnToPage(p)`                                  | `turnToNextPage()`  | `turnToPrevPage()`  |
 
+**ADDITIVE.** `cancelTurn(): boolean` abandons an in-flight drag, programmed
+curl, snap-back or hover fold without committing. Returns `false` when idle,
+unloaded or destroyed. The React handle returns `false` before mount. Not
+finish, pause, resume, or jump; does not emit `flip`.
+
 Core throws typed errors (catchable at the call site); the React handle returns
 `boolean` and reports through `onTurnRejected`. That split is deliberate and
 documented, not unified (two audiences).

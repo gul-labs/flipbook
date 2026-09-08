@@ -135,7 +135,8 @@ The engine's public surface is exactly this, pinned by
 
 - **Load:** `loadFromHTML`, `updateFromHtml`, `clear`, `destroy`
 - **Navigate:** `flipToPage` / `flipNext` / `flipPrev` (animated),
-  `turnToPage` / `turnToNextPage` / `turnToPrevPage` (instant), `canTurn`
+  `turnToPage` / `turnToNextPage` / `turnToPrevPage` (instant), `canTurn`,
+  `cancelTurn` (abandon in-flight work without committing; not finish/pause/jump)
 - **Query:** `getPageCount`, `getCurrentPageIndex`, `getVisiblePages`,
   `getOrientation`, `getBoundsRect`, `getSettings`, `getState`,
   `getBlockElement`, `getPageElement`, `isReady`, `isAnimating`, `isDestroyed`

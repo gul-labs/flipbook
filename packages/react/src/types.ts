@@ -93,6 +93,11 @@ export type FlipBookHandle = {
   turnToPage: (page: number) => boolean;
   /** Animate to a page. `false` if the engine refused or is not ready. */
   flipToPage: (page: number) => boolean;
+  /**
+   * Abandon an in-flight turn without committing. `false` before mount, after
+   * unmount, when idle, or when the engine is destroyed. Not finish/pause/jump.
+   */
+  cancelTurn: () => boolean;
 };
 
 /** How a controlled `page` change moves the book. */

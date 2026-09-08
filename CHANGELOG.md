@@ -4,6 +4,26 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Added — mobile live-HTML fixture, mid-turn resize cancel, `cancelTurn`
+
+- **F01.** `examples/mobile-reader/` is a live-HTML picture-book fixture (cover,
+  inside cover, story text, delayed local font, SVG illustration, RTL sample,
+  token-id highlight clock, drag-only settings). Playwright:
+  `e2e/mobile-live-html.spec.ts`. Not a physical WKWebView/Android sign-off.
+- **F03.** A mid-turn `ResizeObserver` / `visualViewport` bounds change now
+  cancels to the last committed page (same abandon path as `updateSettings`)
+  instead of leaving `FlipCalculation` frozen at the old page width. Silent at
+  rest; zero-size hide/reveal unchanged. `visualViewport` resizes that do not
+  change the container box stay no-ops.
+- **F04.** `docs/LIVE-PAGE-FACES.md` — clone is a snapshot; highlight with a
+  document stylesheet on `data-token-id`. No engine MutationObserver.
+- **F05.** `PageFlip.cancelTurn(): boolean` and the same method on the React
+  handle. Abandons drag / programmed curl / snap-back / hover fold without
+  committing; `false` when idle, unloaded, destroyed, or before mount. Not
+  finish, pause, resume, or jump. Does not emit `flip`.
+- **Size.** F03+F05 spent ~0.51 kB raw (63.38 → 63.89 kB). Ceilings raised
+  63.5→63.9 / 15.6→15.7 / 17.6→17.7 kB (correctness + public API, AGENTS.md §2).
+
 ### Docs / package metadata (OSS polish)
 
 - README: npm version + types badges (packages are on the registry), install
