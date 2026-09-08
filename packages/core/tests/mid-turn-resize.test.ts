@@ -330,6 +330,30 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(app.getCurrentPageIndex()).toBe(1);
   });
 
+  test('nested animated flipNext during updateSettings width change is not re-abandoned', () => {
+    const queued = stubRafQueue();
+    const fixture = book({ flippingTime: 800, respectReducedMotion: false });
+    const app = fixture.book;
+    flushQueuedRaf(queued, 0);
+    expect(app.getOrientation()).toBe('landscape');
+    startForwardDrag(app);
+
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested && !app.isDestroyed()) {
+        nested = true;
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+
+    app.updateSettings({ width: 300 });
+
+    expect(app.getOrientation()).toBe('portrait');
+    expect(nested).toBe(true);
+    expect(app.isAnimating()).toBe(true);
+    expect(app.getCurrentPageIndex()).toBe(0);
+  });
+
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {
     const queued = stubRafQueue();
     const fixture = book({ flippingTime: 1000, respectReducedMotion: false });

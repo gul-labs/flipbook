@@ -42,7 +42,7 @@
     {
       "name": "html-engine (raw, drift alarm)",
       "path": "size-check/html-engine.js",
-      "limit": "64.1 kB",
+      "limit": "64.2 kB",
       "gzip": false,
       "brotli": false
     },

@@ -1003,13 +1003,20 @@ export class PageFlip extends EventObject {
       owner.applyHostSize(this.setting);
     }
 
+    // Same object identity as the fold that was live on entry. `update()` may
+    // already have abandoned it (bounds changed) and a changeState listener
+    // may have started a NEW turn. Trailing-abandon only if THAT original
+    // calc is still installed — direction-only still settles; a nested
+    // flipNext on the new geometry is not killed.
+    const priorCalc = this.flipController?.getCalculation() ?? null;
+
     if (this.render) {
       this.update();
     }
 
     if (this.destroyed) return this.setting;
 
-    if (foldInvalidated) {
+    if (foldInvalidated && this.flipController?.getCalculation() === priorCalc) {
       this.abandonInFlightTurn();
     }
 

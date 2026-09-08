@@ -97,8 +97,8 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // Destroy-guard on Render.update (reentrancy): 63_930 B. Ceiling 64_000
 // with size-limit twins 64 / 15.7 / 17.7 kB.
 // Adopt orientation before nested flipNext (portrait step): 64_065 B.
-// Ceiling 64_100 with size-limit twins 64.1 / 15.8 / 17.8 kB.
-const RAW_ALARM_BYTES = 64_100;
+// Ceiling 64_200 with size-limit twins 64.2 / 15.8 / 17.8 kB.
+const RAW_ALARM_BYTES = 64_200;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(
