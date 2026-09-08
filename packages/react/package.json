@@ -1,6 +1,6 @@
 {
   "name": "@gullabs/react-flipbook",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "React 18/19 binding for @gullabs/flipbook-core. Maintained fork of react-pageflip.",
   "license": "MIT",
   "author": "Atif Gul",

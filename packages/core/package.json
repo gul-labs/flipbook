@@ -1,6 +1,6 @@
 {
   "name": "@gullabs/flipbook-core",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Framework-agnostic page-curl engine. Maintained fork of StPageFlip.",
   "license": "MPL-2.0",
   "author": "Atif Gul",

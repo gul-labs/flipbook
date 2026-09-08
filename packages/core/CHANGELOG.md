@@ -1,5 +1,11 @@
 # @gullabs/flipbook-core
 
+## 3.2.1
+
+### Patch Changes
+
+- 6361a7c: Docs and tooling hygiene: consumer README/API accuracy, safe Dependabot devDependency bumps (Playwright 1.63, eslint 10.10, etc.). No runtime API change.
+
 ## 3.2.0
 
 ### Minor Changes
