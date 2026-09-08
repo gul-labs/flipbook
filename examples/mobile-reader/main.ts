@@ -179,10 +179,10 @@ window.setTimeout(() => {
     .load()
     .then((loaded) => {
       document.fonts.add(loaded);
-    })
-    .catch(() => undefined)
-    .finally(() => {
       document.body.dataset['fontReady'] = '1';
+    })
+    .catch(() => {
+      document.body.dataset['fontReady'] = 'failed';
     });
 }, 1500);
 

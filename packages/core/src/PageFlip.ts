@@ -67,12 +67,22 @@ const CONSTRUCTION_TIME_SETTINGS = ['hardCovers', 'initialPage', 'injectStyles']
  * public setting silently not take effect for as long as a gesture is held,
  * which is the `swipeDistance` failure this repo already fixed once.
  *
- * `satisfies` catches a MISSPELLED or removed key, and nothing more. It does
- * NOT catch an omission: adding a new geometry setting to `FlipSetting` without
- * listing it here compiles cleanly and re-creates the mid-fold split, silently.
- * Stated rather than implied, because the first version of this comment claimed
- * the stronger guarantee and would have been believed.
+ * Closed set, not `satisfies keyof FlipSetting`. That only caught misspellings;
+ * omitting `maxHeight` compiled and re-created the mid-fold split. Adding a
+ * geometry key to this union without listing it below is a type error.
  */
+type FoldInvalidatingSetting =
+  | 'readingDirection'
+  | 'sizing'
+  | 'width'
+  | 'height'
+  | 'minWidth'
+  | 'maxWidth'
+  | 'minHeight'
+  | 'maxHeight'
+  | 'usePortrait'
+  | 'autoSize';
+
 const FOLD_INVALIDATING_SETTINGS = [
   'readingDirection',
   'sizing',
@@ -81,9 +91,17 @@ const FOLD_INVALIDATING_SETTINGS = [
   'minWidth',
   'maxWidth',
   'minHeight',
+  'maxHeight',
   'usePortrait',
   'autoSize',
-] as const satisfies readonly (keyof FlipSetting)[];
+] as const satisfies readonly FoldInvalidatingSetting[];
+
+type FoldInvalidatingComplete =
+  Exclude<FoldInvalidatingSetting, (typeof FOLD_INVALIDATING_SETTINGS)[number]> extends never
+    ? true
+    : never;
+const foldInvalidatingComplete: FoldInvalidatingComplete = true;
+void foldInvalidatingComplete;
 
 /**
  * Class representing a main PageFlip object
@@ -923,10 +941,12 @@ export class PageFlip extends EventObject {
     //
     // These are read live in two places that update at different moments.
     // `PageCollection.showSpread` re-mirrors the STATIC spread on the next
-    // `update()`, which is immediate. The FOLD does not: `Render.direction` is
-    // the geometric side, stamped once per turn by `Render.setDirection`, and
-    // `FlipCalculation` is built from that same stamp — both frozen at turn
-    // start so the mirror is applied exactly once and cannot drift mid-turn.
+    // `pages.show()`, which must run AFTER abandon — otherwise a direction
+    // change remirrors the spread while USER_FOLD calc is still installed.
+    // The FOLD does not remirror: `Render.direction` is the geometric side,
+    // stamped once per turn by `Render.setDirection`, and `FlipCalculation`
+    // is built from that same stamp — both frozen at turn start so the
+    // mirror is applied exactly once and cannot drift mid-turn.
     //
     // Toggling `direction` during a turn therefore split the book in half:
     // begin an LTR landscape `flipNext()`, then flip to `rtl` after the first
@@ -944,80 +964,58 @@ export class PageFlip extends EventObject {
     // `cancelAnimation()` + `abandon()` is the same pair every other
     // state-invalidating path uses (`replacePages`, `clear`, `destroy`).
     //
-    // `abandon()` emits `changeState`, so a listener may destroy from inside
-    // it. applyHostSize / update run BEFORE that dispatch so a destroy cannot
-    // skip stamping, and the checks after abandon still refuse to touch a
-    // dead UI.
-
     // updateSettings can run before create() wires render/ui (React effects).
-
-    // RE-3. HOISTED, because the line between these two DISPATCHES.
+    // Stamp geometry, then settle the fold, then remirror, then rebind
+    // pointers. `refreshHandlers` used to run first and abandon via
+    // `cancelGesture` against the OLD box, so `{ pointerInput, width }` bound
+    // a nested `flipNext` to landscape and committed 0→2. `this.update()`
+    // used to remirror (`pages.show`) before the trailing abandon, so a
+    // direction-only change split the spread from the curl for one stack.
     //
-    // `refreshHandlers()` -> `removeHandlers()` -> `UI.cancelGesture()` ->
-    // `flip.abandon()` emits `changeState`, and `pages.show()` emits `flip`. A
-    // listener on either that calls `destroy()` nulls `this.ui`, and the next
-    // line used to dereference it — measured with a real pointerdown/pointermove
-    // followed by `updateSettings({ useMouseEvents: false })`:
-    //
-    //   TypeError: Cannot read properties of null (reading 'applyHostSize')
-    //
-    // Not a `PageFlipError`, and it unwound out of a public method the destroy
-    // contract lists as a safe no-op. `applyHostSize` on a UI that has already
-    // been torn down is harmless — it writes styles to an element the teardown
-    // has finished with — so holding the reference is the fix rather than
-    // re-checking, and it matches `if (this.render)` below, which survives only
-    // because `update()` happens to use optional chaining.
-    const ui = this.ui;
-
-    if (ui) {
-      if (mouseChanged) {
-        ui.refreshHandlers();
-      }
-
-      // …but the hoist only makes the reference SAFE to hold, not correct to
-      // use. `refreshHandlers()` dispatches, and a listener calling `destroy()`
-      // runs `UI.destroy()`, which hands the consumer's host back with its
-      // original styles restored. Calling `applyHostSize` afterwards stamps the
-      // engine's sizing straight back onto a host the engine no longer owns —
-      // trading a `TypeError` for a silent ownership violation, which is worse.
-      // Destroyed is the end of the line: there is no host left to own.
-      if (this.destroyed) return this.setting;
-
-      // REPLACED is not the same as destroyed, and conflating them left the new
-      // UI unsized. A listener may re-enter and LOAD, which builds a fresh UI;
-      // the old UI's `destroy()` then restores its host-style snapshot — over
-      // the new UI's sizing, because it runs second. Returning here left the
-      // book with the pre-engine `minWidth`/`minHeight` and no way back short
-      // of another `updateSettings`.
-      //
-      // So stamp the CURRENT owner rather than the one captured on entry. The
-      // captured `ui` must not be touched (that is the ownership violation
-      // above), but the engine's live UI both wants this sizing and is the only
-      // thing entitled to write it.
-      const owner = this.ui;
-      if (owner === null) return this.setting;
-
-      // Size-shaped settings are stamped onto the host element, so a changed
-      // `width` / `height` / `size` has to be restamped here. Otherwise the
-      // only way to resize a book is to rebuild the engine.
-      owner.applyHostSize(this.setting);
+    // `refreshHandlers` / `abandon` emit `changeState`. A listener may
+    // `destroy()` (nulls `this.ui`) or LOAD (replaces it). Stamp the live
+    // owner before any of those dispatches; never write a torn-down host.
+    const ownerAtStamp = this.ui;
+    if (ownerAtStamp) {
+      if (this.isDestroyed()) return this.setting;
+      ownerAtStamp.applyHostSize(this.setting);
     }
 
-    // Same object identity as the fold that was live on entry. `update()` may
-    // already have abandoned it (bounds changed) and a changeState listener
-    // may have started a NEW turn. Trailing-abandon only if THAT original
-    // calc is still installed — direction-only still settles; a nested
-    // flipNext on the new geometry is not killed.
     const priorCalc = this.flipController?.getCalculation() ?? null;
 
     if (this.render) {
-      this.update();
+      this.render.update();
     }
 
-    if (this.destroyed) return this.setting;
+    if (this.isDestroyed()) return this.setting;
 
     if (foldInvalidated && this.flipController?.getCalculation() === priorCalc) {
       this.abandonInFlightTurn();
+    }
+
+    if (this.isDestroyed()) return this.setting;
+
+    const calcNow = this.flipController?.getCalculation() ?? null;
+    const nestedTurn = calcNow !== null && calcNow !== priorCalc;
+    if (!nestedTurn) {
+      this.pages?.show();
+    }
+
+    if (this.isDestroyed()) return this.setting;
+
+    if (mouseChanged && this.ui) {
+      const originalGone =
+        priorCalc !== null && this.flipController?.getCalculation() !== priorCalc;
+      this.ui.refreshHandlers(originalGone ? { keepFold: true } : undefined);
+    }
+
+    if (this.isDestroyed()) return this.setting;
+
+    // A changeState listener may loadFromHTML and replace the UI. The stamp
+    // above hit the outgoing host; the new owner still needs these settings.
+    const ownerAfter = this.ui;
+    if (ownerAfter !== null && ownerAfter !== ownerAtStamp) {
+      ownerAfter.applyHostSize(this.setting);
     }
 
     return this.setting;

@@ -98,6 +98,16 @@ export type FlipBookHandle = {
    * unmount, when idle, or when the engine is destroyed. Not finish/pause/jump.
    */
   cancelTurn: () => boolean;
+  /**
+   * Tear down the engine while the component stays mounted. The shell retires
+   * in this call (portal dropped, chrome dead, further turns `DESTROYED`).
+   * Revival is unmount or a remount-key change (`hardCovers` / `initialPage` /
+   * `injectStyles`). Unmount already destroys; you do not need this then.
+   *
+   * `pageFlip()?.destroy()` tears the engine down but does not retire the
+   * React shell until the next render — use this method.
+   */
+  destroy: () => void;
 };
 
 /** How a controlled `page` change moves the book. */

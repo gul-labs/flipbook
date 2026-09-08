@@ -13,6 +13,9 @@
 // only gesture `pan-y` was there to protect.
 export const FLIPBOOK_CSS =
   '.stf__parent{position:relative;display:block;box-sizing:border-box;transform:translateZ(0);-ms-touch-action:pan-y pinch-zoom;touch-action:pan-y pinch-zoom}' +
+  // Live: `allowTouchScroll: false` drops pan-y so the compositor will not
+  // steal a vertical swipe. Pinch-zoom stays (WCAG 1.4.4 / 1.4.10).
+  '.stf__parent.--lock-touch-scroll{-ms-touch-action:pinch-zoom;touch-action:pinch-zoom}' +
   '.stf__wrapper{position:relative;width:100%;box-sizing:border-box}' +
   '.stf__block{position:absolute;width:100%;height:100%;box-sizing:border-box;perspective:2000px;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;user-drag:none}' +
   // VISIBILITY, not display — the two must not share a property.

@@ -4,6 +4,17 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — `updateSettings` pipeline, pointer steal, dead React shell
+
+- **`updateSettings`.** Stamp host + Render bounds, abandon the original fold, remirror (`pages.show` unless a nested turn is live), then rebind pointers. `{ pointerInput, width }` no longer abandons against the old box. Direction-only no longer remirrors while the curl is still installed. `maxHeight` is in the fold-invalidating set (omissions are a type error). Engine-initiated `releasePointerCapture` is not treated as an OS steal, so a nested `flipNext` from the first READ is not killed.
+- **Pointer capture.** `lostpointercapture` that is not our own release abandons the fold (iOS pan steal). `pointerup` still commits. Touch move listeners are `{passive:false}`. `allowTouchScroll: false` sets `--lock-touch-scroll` (`touch-action: pinch-zoom`); pan is CSS, `preventDefault` only once a fold is live so pinch-zoom stays. Destroy restores the lock class.
+- **React destroy-without-unmount.** `FlipBookHandle.destroy()` retires the shell (portal dropped, Next/Prev `aria-disabled`, further turns `code: 'DESTROYED'`). Unmount reports `NOT_LOADED` on a captured handle. `pageFlip()?.destroy()` tears the engine down; the shell retires on the next render. No `flushSync`, no wrapping of `PageFlip.destroy`. `pagesChanged` with `pageCount: 0` notifies `usePageFlip`.
+- **Size.** Packed HTML engine **64.16 kB raw / 15.75 kB brotli / 17.74 kB gzip** (was 64.07 / 15.72 / 17.74). Ceilings unchanged 64.2 / 15.8 / 17.8 kB.
+
+### Tests — fixture honesty
+
+Mobile-reader e2e now requires current-leaf BACK clone text, original **and** clone highlight, lazy window movement after a turn, computed font-family, touch **move** `preventDefault`, and a mid-fold host-width cancel. Not a physical WKWebView sign-off.
+
 ### Fixed — `updateSettings` mid-turn nested turns see new geometry
 
 `updateSettings` now stamps host size and Render bounds before abandoning the

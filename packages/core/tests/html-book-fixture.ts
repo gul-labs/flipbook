@@ -104,12 +104,40 @@ export function makeHtmlBook(opts: BookOpts = {}): {
   };
 }
 
-/** Pointer capture is incomplete in jsdom — keep the real path callable. */
+const pointerCaptures = new WeakMap<Element, Set<number>>();
+
+/**
+ * jsdom's capture methods are missing or no-ops. An empty `setPointerCapture`
+ * plus a missing `hasPointerCapture` made the engine treat capture as success
+ * (`pointerCaptured = true` when the query is absent), so `pointerleave`
+ * tests were lying. Track ids the way a real UA would.
+ */
 export function installPointerCaptureShims(): void {
-  if (!HTMLElement.prototype.setPointerCapture) {
-    HTMLElement.prototype.setPointerCapture = function setPointerCapture() {};
-  }
-  if (!HTMLElement.prototype.releasePointerCapture) {
-    HTMLElement.prototype.releasePointerCapture = function releasePointerCapture() {};
-  }
+  const proto = HTMLElement.prototype;
+  if (typeof proto.hasPointerCapture === 'function') return;
+
+  proto.setPointerCapture = function setPointerCapture(id: number): void {
+    let ids = pointerCaptures.get(this);
+    if (!ids) {
+      ids = new Set();
+      pointerCaptures.set(this, ids);
+    }
+    ids.add(id);
+  };
+  proto.releasePointerCapture = function releasePointerCapture(id: number): void {
+    const ids = pointerCaptures.get(this);
+    if (ids?.has(id) !== true) return;
+    ids.delete(id);
+    this.dispatchEvent(
+      new PointerEvent('lostpointercapture', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: id,
+        pointerType: 'mouse',
+      }),
+    );
+  };
+  proto.hasPointerCapture = function hasPointerCapture(id: number): boolean {
+    return pointerCaptures.get(this)?.has(id) === true;
+  };
 }

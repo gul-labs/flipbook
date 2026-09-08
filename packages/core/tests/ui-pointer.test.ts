@@ -230,12 +230,14 @@ describe('UI pointer paths', () => {
     host.remove();
   });
 
-  test('touch pointer with allowTouchScroll gates preventDefault on move', () => {
-    const { book: app } = book({
+  test('allowTouchScroll false preventDefault on touch move', () => {
+    const { book: app, host } = book({
       pageCount: 4,
       flippingTime: 0,
-      allowTouchScroll: true,
+      allowTouchScroll: false,
     });
+    expect(host.classList.contains('--lock-touch-scroll')).toBe(true);
+
     const dist = app.getBlockElement();
     const rect = app.getBoundsRect();
     const start = { x: rect.left + rect.width - 10, y: rect.top + 20 };
@@ -251,28 +253,59 @@ describe('UI pointer paths', () => {
         button: 0,
       }),
     );
-    dist.dispatchEvent(
-      new PointerEvent('pointermove', {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 7,
-        pointerType: 'touch',
-        clientX: start.x - 50,
-        clientY: start.y + 5,
-        buttons: 1,
-      }),
-    );
-    dist.dispatchEvent(
-      new PointerEvent('pointerup', {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 7,
-        pointerType: 'touch',
-        clientX: start.x - 50,
-        clientY: start.y + 5,
-      }),
-    );
+    const move = new PointerEvent('pointermove', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: start.x - 50,
+      clientY: start.y + 5,
+      buttons: 1,
+    });
+    dist.dispatchEvent(move);
 
+    expect(move.defaultPrevented).toBe(true);
+    expect(app.getState()).not.toBe(FlippingState.READ);
+
+    app.destroy();
+    expect(host.classList.contains('--lock-touch-scroll')).toBe(false);
+  });
+
+  test('allowTouchScroll true does not preventDefault while still READ', () => {
+    const { book: app, host } = book({
+      pageCount: 4,
+      flippingTime: 0,
+      allowTouchScroll: true,
+    });
+    expect(host.classList.contains('--lock-touch-scroll')).toBe(false);
+
+    const dist = app.getBlockElement();
+    const rect = app.getBoundsRect();
+    const start = { x: rect.left + rect.width - 10, y: rect.top + 20 };
+
+    dist.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 7,
+        pointerType: 'touch',
+        clientX: start.x,
+        clientY: start.y,
+        button: 0,
+      }),
+    );
+    const move = new PointerEvent('pointermove', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: start.x - 4,
+      clientY: start.y + 2,
+      buttons: 1,
+    });
+    dist.dispatchEvent(move);
+
+    expect(move.defaultPrevented).toBe(false);
     expect(app.getState()).toBe(FlippingState.READ);
   });
 

@@ -153,6 +153,31 @@ describe('F05 — cancelTurn', () => {
     expect(app.getState()).toBe(FlippingState.READ);
   });
 
+  test('abandons a snap-back; a stale completion cannot commit', () => {
+    const queued = stubRafQueue();
+    const { book: app } = book({ flippingTime: 1000, respectReducedMotion: false });
+    flushQueuedRaf(queued, 0);
+
+    const flips: number[] = [];
+    app.on('flip', (e) => flips.push(e.data.page));
+
+    startForwardDrag(app);
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+
+    testFlip(app)?.stopMove();
+    expect(app.isAnimating()).toBe(true);
+    expect(app.getCurrentPageIndex()).toBe(0);
+
+    expect(app.cancelTurn()).toBe(true);
+    expect(app.isAnimating()).toBe(false);
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(flips).toEqual([]);
+
+    flushQueuedRaf(queued, 1_000_000);
+    expect(app.getCurrentPageIndex()).toBe(0);
+    expect(flips).toEqual([]);
+  });
+
   test('a changeState listener that starts a new turn keeps the new generation', () => {
     const { book: app } = book({ flippingTime: 0 });
     let nested = false;

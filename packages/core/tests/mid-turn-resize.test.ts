@@ -15,21 +15,24 @@ import { testFlip } from './engine-access';
 
 let resizeObservers: Array<() => void> = [];
 let visualViewportListeners: Array<() => void> = [];
+let fakeObservers: FakeResizeObserver[] = [];
 
 class FakeResizeObserver {
+  public target: Element | null = null;
   public constructor(private readonly cb: () => void) {
     resizeObservers.push(() => {
       this.cb();
     });
+    fakeObservers.push(this);
   }
-  public observe(): void {
-    /* the element does not matter; tests fire the callback directly */
+  public observe(target: Element): void {
+    this.target = target;
   }
   public disconnect(): void {
-    /* nothing retained */
+    this.target = null;
   }
   public unobserve(): void {
-    /* nothing retained */
+    this.target = null;
   }
 }
 
@@ -39,6 +42,7 @@ beforeEach(() => {
   installPointerCaptureShims();
   resizeObservers = [];
   visualViewportListeners = [];
+  fakeObservers = [];
   globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
 });
 
@@ -154,6 +158,11 @@ function installVisualViewport(): void {
 }
 
 describe('F02 — observer path while a turn is in flight', () => {
+  test('ResizeObserver.observe is the parent host, not a no-op', () => {
+    const fixture = book();
+    expect(fakeObservers.some((observer) => observer.target === fixture.host)).toBe(true);
+  });
+
   test('orientation flip mid-turn (landscape → portrait) cancels to the committed page', () => {
     const fixture = book();
     const app = fixture.book;
@@ -352,6 +361,49 @@ describe('F02 — observer path while a turn is in flight', () => {
     expect(nested).toBe(true);
     expect(app.isAnimating()).toBe(true);
     expect(app.getCurrentPageIndex()).toBe(0);
+  });
+
+  test('nested flipNext during combined pointerInput+width sees portrait step', () => {
+    const fixture = book({ flippingTime: 0 });
+    const app = fixture.book;
+    expect(app.getOrientation()).toBe('landscape');
+    startForwardDrag(app);
+
+    let nested = false;
+    app.on('changeState', (e) => {
+      if (e.data.state === FlippingState.READ && !nested && !app.isDestroyed()) {
+        nested = true;
+        expect(app.flipNext()).toBe(true);
+      }
+    });
+
+    app.updateSettings({ pointerInput: ['touch'], width: 300 });
+
+    expect(app.getOrientation()).toBe('portrait');
+    expect(app.getCurrentPageIndex()).toBe(1);
+  });
+
+  test('maxHeight mid-fold settles the fold', () => {
+    const fixture = book({
+      sizing: 'responsive',
+      minWidth: 100,
+      maxWidth: 400,
+      minHeight: 100,
+      maxHeight: 500,
+      hostWidth: 520,
+      hostHeight: 400,
+    });
+    const app = fixture.book;
+    startForwardDrag(app);
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+
+    const beforeHeight = app.getBoundsRect().height;
+    app.updateSettings({ maxHeight: 200 });
+
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(testFlip(app)?.getCalculation() ?? null).toBeNull();
+    expect(app.getBoundsRect().height).toBeLessThanOrEqual(200);
+    expect(app.getBoundsRect().height).toBeLessThan(beforeHeight);
   });
 
   test('programmed animation: resize cancels and a stale completion cannot commit', () => {

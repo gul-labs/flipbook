@@ -355,4 +355,16 @@ describe('the injected stylesheet does not disable pinch-to-zoom', () => {
       expect(value!.split(/\s+/).filter(Boolean).sort()).toEqual(['pan-y', 'pinch-zoom']);
     }
   });
+
+  test('allowTouchScroll false keeps pinch-zoom while dropping pan-y', () => {
+    ensureFlipbookStyles();
+    const sheet = document.head.querySelector<HTMLStyleElement>('style[data-gullabs-flipbook]');
+    const lockRule = /\.stf__parent\.--lock-touch-scroll\{([^}]*)\}/.exec(sheet!.textContent ?? '');
+    expect(lockRule).toBeTruthy();
+    const declarations = lockRule?.[1] ?? '';
+    for (const property of ['touch-action', '-ms-touch-action']) {
+      const value = new RegExp(`(?:^|;)${property}:([^;]*)`).exec(declarations)?.[1];
+      expect(value!.split(/\s+/).filter(Boolean)).toEqual(['pinch-zoom']);
+    }
+  });
 });

@@ -1807,6 +1807,9 @@ describe('F05 — cancelTurn on the React handle', () => {
         {pages('a', 'b', 'c', 'd')}
       </HTMLFlipBook>,
     );
+    expect(ref.current).not.toBeNull();
+    expect(ref.current?.cancelTurn()).toBe(false);
+
     await waitFor(() => {
       expect(ref.current?.pageFlip()?.isReady()).toBe(true);
     });
@@ -1859,7 +1862,7 @@ describe('F05 — cancelTurn on the React handle', () => {
   test('destroy() without unmount: cancelTurn is false and does not fire onTurnRejected', async () => {
     const ref = createRef<FlipBookHandle | null>();
     const onTurnRejected = vi.fn();
-    render(
+    const view = render(
       <HTMLFlipBook
         ref={ref}
         width={200}
@@ -1874,11 +1877,48 @@ describe('F05 — cancelTurn on the React handle', () => {
       expect(ref.current?.pageFlip()?.isReady()).toBe(true);
     });
     act(() => {
-      ref.current?.pageFlip()?.destroy();
+      ref.current?.destroy();
     });
     expect(ref.current?.pageFlip()).toBeNull();
     expect(ref.current?.cancelTurn()).toBe(false);
     expect(onTurnRejected).not.toHaveBeenCalled();
+    expect(ref.current?.flipNext()).toBe(false);
+    expect(onTurnRejected).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'DESTROYED', reason: 'notReady' }),
+    );
+
+    const next = view.container.querySelector('[data-flipbook-control="next"]');
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    expect(view.container.querySelector('.stf__block')).toBeNull();
+  });
+
+  test('destroy then unmount: a captured handle reports NOT_LOADED not DESTROYED', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const rejected: TurnRejected[] = [];
+    const view = render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={0}
+        onTurnRejected={(info) => {
+          rejected.push(info);
+        }}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const flipNext = ref.current!.flipNext;
+    act(() => {
+      ref.current?.destroy();
+    });
+    view.unmount();
+    rejected.length = 0;
+    expect(flipNext()).toBe(false);
+    expect(rejected).toEqual([expect.objectContaining({ code: 'NOT_LOADED', reason: 'notReady' })]);
   });
 
   test('after a remount-key rebuild, cancelTurn talks to the new engine', async () => {

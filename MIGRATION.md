@@ -319,9 +319,18 @@ Handler renames (all receive payloads directly, no `.data`):
   The 2.x-era `setPage` / `setPageCount` setters are gone — they desynced
   derived state; `goToPage` actually turns the book.
 - **The imperative handle** is `ref.current.pageFlip()` → the engine (or
-  `null` before mount). Handle actions are deliberately forgiving where the
-  engine throws: before mount / after unmount they no-op or return `false`,
-  because effects that fire early are normal code.
+  `null` before mount, after unmount, and after `destroy()`). Handle actions
+  are deliberately forgiving where the engine throws: before mount / after
+  unmount they no-op or return `false`, because effects that fire early are
+  normal code.
+- **`ref.current.destroy()`** tears the engine down while the component stays
+  mounted. The portal drops, Next/Prev become `aria-disabled`, and further
+  turns report `onTurnRejected({ code: 'DESTROYED' })` — not `NOT_LOADED`
+  (that means "load first"; this instance cannot be revived). Unmount already
+  destroys; you do not need this then. Revival is unmount or a remount key
+  (`hardCovers` / `initialPage` / `injectStyles`). Calling `destroy()` on the
+  engine from `pageFlip()` does not retire the React shell until the next
+  render — use the handle method.
 - `useKeyboard` defaults to **`true`** (ArrowLeft/Right, Home, End); pass
   `false` if you ship your own labeled controls. `controls` is
   `'auto'` (skip-link) | `'visible'` | `'none'`, with `controlLabels` for i18n.
