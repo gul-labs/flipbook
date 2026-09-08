@@ -220,33 +220,38 @@ export function usePageFlip(initialPage = 0, options: { hardCovers?: boolean } =
    * entirely. It runs once an engine exists — `pageCount` moving off 0 is that
    * signal — and re-subscribes if the engine is replaced.
    */
+  // Identity only — subscribe inside the effect to `ref.current`, not this
+  // render-time snapshot. A remount can swap the engine between render and
+  // the effect flush; binding the snapshot would listen to a destroyed instance
+  // and leak the callback if `destroy()` had not yet cleared the map.
   const engine = ref.current?.pageFlip() ?? null;
 
   useEffect(() => {
-    if (engine === null || engine.isDestroyed()) return;
+    const live = ref.current?.pageFlip() ?? null;
+    if (live === null || live.isDestroyed()) return undefined;
 
     const sync = (): void => {
-      if (engine.isDestroyed()) return;
+      if (live.isDestroyed()) return;
       apply(
         {
-          page: engine.getCurrentPageIndex(),
-          pageCount: engine.getPageCount(),
-          orientation: engine.getOrientation(),
-          visiblePages: engine.getVisiblePages(),
+          page: live.getCurrentPageIndex(),
+          pageCount: live.getPageCount(),
+          orientation: live.getOrientation(),
+          visiblePages: live.getVisiblePages(),
         },
         false,
       );
     };
 
-    engine.on('flip', sync);
-    engine.on('pagesChanged', sync);
-    engine.on('changeOrientation', sync);
+    live.on('flip', sync);
+    live.on('pagesChanged', sync);
+    live.on('changeOrientation', sync);
     sync();
 
     return () => {
-      engine.off('flip', sync);
-      engine.off('pagesChanged', sync);
-      engine.off('changeOrientation', sync);
+      live.off('flip', sync);
+      live.off('pagesChanged', sync);
+      live.off('changeOrientation', sync);
     };
     // Keyed on the ENGINE's identity, not on pageCount. A remount that keeps
     // the same page count — a `hardCovers` change, say — produced a new engine

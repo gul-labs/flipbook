@@ -1,5 +1,5 @@
 /**
- * Input-layer defects I4, I6, I10, I11, I19 (docs/CANVAS_FIRST_CLASS.md).
+ * Input-layer defects I4, I6, I10, I11, I19 (historical pointer audit).
  *
  * Every test here is written to fail with its fix reverted AND with a
  * plausible half-fix in place — see the comments marking what each assertion

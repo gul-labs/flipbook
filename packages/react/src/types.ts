@@ -93,6 +93,21 @@ export type FlipBookHandle = {
   turnToPage: (page: number) => boolean;
   /** Animate to a page. `false` if the engine refused or is not ready. */
   flipToPage: (page: number) => boolean;
+  /**
+   * Abandon an in-flight turn without committing. `false` before mount, after
+   * unmount, when idle, or when the engine is destroyed. Not finish/pause/jump.
+   */
+  cancelTurn: () => boolean;
+  /**
+   * Tear down the engine while the component stays mounted. The shell retires
+   * in this call (portal dropped, chrome dead, further turns `DESTROYED`).
+   * Revival is unmount or a remount-key change (`hardCovers` / `initialPage` /
+   * `injectStyles`). Unmount already destroys; you do not need this then.
+   *
+   * `pageFlip()?.destroy()` tears the engine down but does not retire the
+   * React shell until the next render — use this method.
+   */
+  destroy: () => void;
 };
 
 /** How a controlled `page` change moves the book. */

@@ -19,7 +19,7 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "build": "pnpm -r --filter './packages/*' build",
-    "build:examples": "pnpm --filter example-vanilla build && pnpm --filter example-vite-react build && pnpm --filter example-nextjs build",
+    "build:examples": "pnpm --filter example-vanilla build && pnpm --filter example-vite-react build && pnpm --filter example-nextjs build && pnpm --filter example-mobile-reader build",
     "build:all": "pnpm build && pnpm build:examples",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --if-present typecheck",
     "typecheck:all": "tsc --noEmit -p tsconfig.json && pnpm -r --if-present typecheck",
@@ -30,7 +30,7 @@
     "preflight": "node ./scripts/quality.mjs",
     "quality": "pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "check:workflows": "node ./scripts/check-workflow-guards.mjs",
-    "quality:ci": "pnpm check:workflows && pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test:coverage && pnpm test:coverage-areas && pnpm size && node ./scripts/check-isolated-types.mjs && pnpm test:packed",
+    "quality:ci": "pnpm check:workflows && pnpm test:audit-gate && pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test:coverage && pnpm test:coverage-areas && pnpm size && node ./scripts/check-isolated-types.mjs && pnpm test:packed",
     "quality:examples": "pnpm build && pnpm build:examples",
     "quality:full": "pnpm quality:ci && pnpm quality:examples && pnpm audit --audit-level=high",
     "size": "pnpm --filter @gullabs/flipbook-core size",
@@ -46,12 +46,15 @@
     "test:e2e:golden:update": "playwright test e2e/golden-flip.spec.ts --update-snapshots",
     "test:coverage-areas": "node ./scripts/check-coverage-areas.mjs",
     "test:packed": "node ./scripts/check-packed-artifacts.mjs",
-    "test:e2e:golden:update:linux": "bash ./scripts/update-golden-linux.sh"
+    "test:e2e:golden:update:linux": "bash ./scripts/update-golden-linux.sh",
+    "audit:gate": "node scripts/audit.mjs --prod --audit-level=high",
+    "test:audit-gate": "node scripts/audit.test.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.62.1",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",

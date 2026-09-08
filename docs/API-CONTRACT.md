@@ -1,11 +1,11 @@
 # API contract — the 3.0 lock
 
-**Status: PROPOSED LOCK, first pass (2026-08-30).** Judged from the consumer's
-chair: someone who `npm i`s this to ship a reader, styles it with their design
-system, draws their own chrome, and deep-links pages. Every item below carries a
-verdict. After the owner signs off, **the surface is frozen**: reviews may find
-bugs in the implementation of this contract, but may not propose surface
-changes — those are filed for 3.1.
+**Status: LOCKED (2026-08-30).** Judged from the consumer's chair: someone who
+`npm i`s this to ship a reader, styles it with their design system, draws their
+own chrome, and deep-links pages. Every item below carries a verdict. **The
+surface is frozen**: reviews may find bugs in the implementation of this
+contract, but may not propose surface changes — those are filed in
+[TODO.md](./TODO.md).
 
 The rule used throughout: **an API is right when the consumer's obvious code is
 correct code.** Where the obvious code was wrong (styling the leaf root, deriving
@@ -110,6 +110,11 @@ Two symmetric triads, locked:
 | **animated** | `flipToPage(p, corner?)` _(renamed from `flip`)_ | `flipNext(corner?)` | `flipPrev(corner?)` |
 | **instant**  | `turnToPage(p)`                                  | `turnToNextPage()`  | `turnToPrevPage()`  |
 
+**ADDITIVE.** `cancelTurn(): boolean` abandons an in-flight drag, programmed
+curl, snap-back or hover fold without committing. Returns `false` when idle,
+unloaded or destroyed. The React handle returns `false` before mount. Not
+finish, pause, resume, or jump; does not emit `flip`.
+
 Core throws typed errors (catchable at the call site); the React handle returns
 `boolean` and reports through `onTurnRejected`. That split is deliberate and
 documented, not unified (two audiences).
@@ -177,14 +182,11 @@ convenience. All three exist and none is documented. Docs work, not API work
 | `FLIPBOOK_INTERACTIVE_SELECTOR`, `isInteractivePointerTarget`                                                              | **LOCK** — documentation-as-code for `respectInteractiveContent`; a consumer testing "will a drag start here" needs the same predicate the engine uses                |
 | `DEFAULT_PAGE_BACKGROUND`                                                                                                  | **LOCK**                                                                                                                                                              |
 
-**The barrel prune and the `PageCollection` collapse were valid.** The
-implementation classes and fold algorithms were exported only so tests could
-import them and so dead-end `extends` compiled; nothing public names them now,
-and `docs/WEBGL_RENDERER.md` already established `Render` is the wrong
-extension seam. Codex's residual findings #6–#8 (prune to two exports, the
-three remaining class merges, the service-locator internals) are **internal
-hygiene, deferred to 3.1** — they are invisible through this contract, and they
-are exactly the kind of finding that has kept moving the finish line.
+**The barrel prune and the class-pair collapses are done.** Implementation
+classes and fold algorithms are internal; nothing public names them.
+[WEBGL_RENDERER.md](./WEBGL_RENDERER.md) established `Render` is the wrong
+extension seam. Remaining internal hygiene (headless-controller seam) is in
+[TODO.md](./TODO.md) and invisible through this contract.
 
 ### `PageFlip` methods
 
@@ -371,61 +373,35 @@ README rewrite: quickstart whose obvious code is correct (counter via
   (strict validation, `page` without `onPageChange` is a locked book), deep-link
   recipe (controlled `page` + `'instant'`), SSR note, CSP note, RTL note,
   `controls="visible"` + `hardCovers` example, front-matter labels via
-  `liveRegionText`. MIGRATION.md covers every rename in §A of
-  `docs/PRODUCT-DECISIONS.md` plus `flip`→`flipToPage`.
+  `liveRegionText`. MIGRATION.md covers every rename plus `flip`→`flipToPage`.
 
-Added by the P/B/H triage (§7):
+Also required of the docs surface:
 
-- **MIGRATION matches the live façade** (P10) — the lifecycle text still names
-  deleted getters (`getUI`, `getRender`); the `public-surface.test.ts`
-  allowlist is the source of truth, and MIGRATION/README get a short
-  "supported façade" section derived from it.
-- **One portal sentence** (P11): a React host portals into
-  `getBlockElement()`, always.
-- **Styling the built-in controls** (P-doc §5): document
-  `controls="visible"` + the stable `data-flipbook-kb` /
-  `data-flipbook-controls` attributes as the 3.0 way to brand the buttons; the
-  render-prop seam is TODO.md, not this release.
+- **MIGRATION matches the live façade** — no deleted getters (`getUI`,
+  `getRender`); `public-surface.test.ts` allowlist is the source of truth.
+- **One portal sentence**: a React host portals into `getBlockElement()`,
+  always.
+- **Styling the built-in controls**: `controls="visible"` + stable
+  `data-flipbook-kb` / `data-flipbook-controls` attributes; the render-prop
+  seam is [TODO.md](./TODO.md), not this release.
 
-## 6. Deferred to 3.1, by decision
+## 6. Deferred (additive / internal)
 
-The canonical post-3.0 backlog is **`docs/TODO.md`**. Headlines: three class
-merges (`Page`, `UI`, `Render` pairs) and service-locator hygiene; `pageLabel`
-first-class API; `validateFlipOptions` preflight; a controls styling seam;
-spread-space position for scrubbers; `onProgress`; `<FlipPage>` wrapper;
-shadow color tokens; headless-controller renderer seam. None is observable
-through this contract.
+The canonical backlog is **[TODO.md](./TODO.md)**. Headlines: `pageLabel`,
+`validateFlipOptions`, controls styling seam, spread-space position,
+`<FlipPage>`, shadow / paper-base tokens, headless-controller renderer seam,
+F06 turn lifecycle. None reopens this locked surface.
 
-## 7. Triage ledger — `.local/example-authoring-findings.md` (B/H) and `docs/reviews/test-writing-product-bugs-2026-08-30.md` (P)
+`turnProgress` / `onTurnProgress` already shipped (additive under Job 3).
+Class-pair collapses are done (internal). Accepted constraints that are not
+work items: [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
 
-Every finding from both documents, dispositioned against this contract. Ship
-bar: a real consumer mis-renders, locks, crashes, or is lied to in 3.0.
+## 7. Historical triage
 
-| Finding                                              | Disposition                                                                                                                     |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| P7 `flipNext` dies on `COLLINEAR_SEGMENTS`           | **Delta B1** — verified live at HEAD; the top item                                                                              |
-| P0 `pageBackground` silent white / translucent hole  | **Delta B3** (structural opacity; boundary validation already landed)                                                           |
-| P2 false `forwardRef` warning / B3 silent blank book | **Delta B4** — one fix covers both                                                                                              |
-| P9 `attachMode`/`replacePages` secret types          | **Delta C7**; `startUserTouch` trio stays public-documented, as the P-doc itself concludes                                      |
-| P11 dual `getBlock`/`getBlockElement`                | **Delta C7** + the portal sentence in §5                                                                                        |
-| P12 `isReady` on empty shell                         | **Delta C3**                                                                                                                    |
-| P10 MIGRATION names deleted getters                  | **§5 docs obligation**                                                                                                          |
-| B2 leaf-root styling contract                        | **§5 docs obligation** (engine change already landed: no wipe, `visibility`, `--stf-paper`)                                     |
-| B6 stale README / H2 deep-link recipe / H4–H5 throws | **§5 docs obligations**                                                                                                         |
-| H6 `controls="visible"` example                      | **§5 docs obligation**                                                                                                          |
-| P8 `validateFlipOptions` preflight                   | **TODO** — additive, safe in 3.1; construction throw covers 3.0                                                                 |
-| Controls styling seam (render prop / classNames)     | **TODO** — 3.0 answer is `controls="visible"` + stable attributes                                                               |
-| `getSpreadCount`/spread index for scrubbers          | **TODO**                                                                                                                        |
-| `onProgress` frame tick                              | **Shipped 2026-08-31** as `turnProgress` / `onTurnProgress` (PLAN-3.1 C) — additive ledger entry under Job 3                    |
-| `<FlipPage>` wrapper (B2's optional half)            | **TODO**                                                                                                                        |
-| H7 Next example `flippingTime={0}`                   | **TODO** (do with the docs round)                                                                                               |
-| B8/H9 vanilla demo vs e2e harness split              | **TODO** (low)                                                                                                                  |
-| B1 dead `sizing` prop, P1 `GeometryAbort` unused     | **Closed at HEAD** (P1's residual _is_ P7)                                                                                      |
-| P3 destroyed-engine handle silence                   | **Closed at HEAD**; keep the regression test in the green suite                                                                 |
-| B5 `loadFromImages` stubs                            | **Closed at HEAD** — methods and `CANVAS_REMOVED` fully deleted (`bf8514b`); MIGRATION signposts                                |
-| P4/P5/P6                                             | Closed / intentional, per their own author                                                                                      |
-| B4 core-throw vs React-boolean, H1 aliases, H3 unify | **Rejected** (§3), as both documents themselves recommend                                                                       |
-| Drop `WidgetEvent` from the React entry (P-doc §4)   | **Rejected** — `pageFlip()` escape-hatch consumers use `book.on`, which hands them `WidgetEvent`; document "core shape" instead |
+Pre-publish B/H/P findings (example authoring, test writing, consumer expert)
+were dispositioned against this contract. Ship-bar items closed; remaining
+additive work is in TODO; rejected items are in §3 and KNOWN-LIMITATIONS.
+The original review write-ups are gone from the tree (git history only).
 
 ## 8. The acceptance consumer — story-book
 

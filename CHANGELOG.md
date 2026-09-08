@@ -4,6 +4,76 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — mobile branch adversarial audit
+
+- **Rotation during a turn:** wrapper geometry and the spread cursor now agree
+  before cancellation announces READ. A callback starting the next turn from
+  landscape page 4 after portrait rotation lands on page 5, not page 3. Both
+  observed resizing and explicit settings changes use the corrected ordering.
+- **Keyboard navigation:** ArrowLeft/ArrowRight/Home/End work while the reader's
+  own Previous/Next buttons have focus, retaining that focus. Content widgets,
+  nested books and modified browser shortcuts retain their own keys.
+- **Mobile demo:** the reduced-motion control now sets actual turn duration;
+  normal mode still honors the operating system's reduced-motion preference.
+- **Dependency audit:** removing the synthetic canary no longer hides real
+  lodash vulnerabilities at other installed versions. A verified canary must
+  have a known severity and an advisory range covering the injected version.
+- **Browser regressions:** exact drag destinations, a unique original-cover
+  locator and atomic post-clone highlighting replace invalid/racy assertions.
+- **Size correction:** a clean archive build of `f91a654` is **65,650 B raw /
+  15,984 B brotli / 18,096 B gzip**. The earlier 64.16/15.75/17.74 kB report
+  was inaccurate. This audit adds **196 / 34 / 31 B**, yielding **65,846 /
+  16,018 / 18,127 B** using Node zlib defaults (size-limit reports 18.07 kB
+  gzip with its settings). The owner approved **66 / 16.1 / 18.2 kB** ceilings.
+
+### Fixed — `updateSettings` pipeline, pointer steal, dead React shell
+
+- **`updateSettings`.** Stamp host + Render bounds, abandon the original fold, remirror (`pages.show` unless a nested turn is live), then rebind pointers. `{ pointerInput, width }` no longer abandons against the old box. Direction-only no longer remirrors while the curl is still installed. `maxHeight` is in the fold-invalidating set (omissions are a type error). Engine-initiated `releasePointerCapture` is not treated as an OS steal, so a nested `flipNext` from the first READ is not killed.
+- **Pointer capture.** `lostpointercapture` that is not our own release abandons the fold (iOS pan steal). `pointerup` still commits. Touch move listeners are `{passive:false}`. `allowTouchScroll: false` sets `--lock-touch-scroll` (`touch-action: pinch-zoom`); pan is CSS, `preventDefault` only once a fold is live so pinch-zoom stays. Destroy restores the lock class.
+- **React destroy-without-unmount.** `FlipBookHandle.destroy()` retires the shell (portal dropped, Next/Prev `aria-disabled`, further turns `code: 'DESTROYED'`). Unmount reports `NOT_LOADED` on a captured handle. `pageFlip()?.destroy()` tears the engine down; the shell retires on the next render. No `flushSync`, no wrapping of `PageFlip.destroy`. `pagesChanged` with `pageCount: 0` notifies `usePageFlip`.
+- **Size.** The original size report was inaccurate; see the clean-build measurements and owner-approved limits in the audit entry above.
+
+### Tests — fixture honesty
+
+Mobile-reader e2e now requires current-leaf BACK clone text, original **and** clone highlight, lazy window movement after a turn, computed font-family, touch **move** `preventDefault`, and a mid-fold host-width cancel. Not a physical WKWebView sign-off.
+
+### Fixed — `updateSettings` mid-turn nested turns see new geometry
+
+`updateSettings` now stamps host size and Render bounds before abandoning the
+fold, matching F03. A trailing abandon only runs if that original calc is still
+live (direction-only). A nested animated `flipNext` on the new geometry is not
+killed. Instant nested width-driven portrait lands 0→1, not landscape 0→2.
+
+### Fixed — destroy-without-unmount no longer crashes the React binding
+
+`pageFlip().destroy()` while `<HTMLFlipBook>` stays mounted left `engineRef`
+pointing at a dead engine. The next children update called `getBlockElement()`
+and threw `DESTROYED` out of an effect. The binding now retires that instance
+(nulls the ref, drops the portal target). Keyboard turns also ignore a
+destroyed engine. `cancelTurn` after unmount / destroy-without-unmount stays
+`false` and does not emit `onTurnRejected`.
+
+### Added — mobile live-HTML fixture, mid-turn resize cancel, `cancelTurn`
+
+- **F01.** `examples/mobile-reader/` is a live-HTML picture-book fixture (cover,
+  inside cover, story text, delayed local font, SVG illustration, RTL sample,
+  token-id highlight clock, drag-only settings). Playwright:
+  `e2e/mobile-live-html.spec.ts`. Not a physical WKWebView/Android sign-off.
+- **F03.** A mid-turn `ResizeObserver` / `visualViewport` bounds change now
+  cancels to the last committed page (same abandon path as `updateSettings`)
+  instead of leaving `FlipCalculation` frozen at the old page width. Silent at
+  rest; zero-size hide/reveal unchanged. `visualViewport` resizes that do not
+  change the container box stay no-ops.
+- **F04.** `docs/LIVE-PAGE-FACES.md` — clone is a snapshot; highlight with a
+  document stylesheet on `data-token-id`. No engine MutationObserver.
+- **F05.** `PageFlip.cancelTurn(): boolean` and the same method on the React
+  handle. Abandons drag / programmed curl / snap-back / hover fold without
+  committing; `false` when idle, unloaded, destroyed, or before mount. Not
+  finish, pause, resume, or jump. Does not emit `flip`.
+- **Size.** F03+F05 plus reentrancy guards spent ~0.68 kB raw (63.38 → 64.07 kB).
+  Ceilings raised 63.5→64.1 / 15.6→15.8 / 17.6→17.8 kB (correctness + public API,
+  AGENTS.md §2).
+
 ### Docs / package metadata (OSS polish)
 
 - README: npm version + types badges (packages are on the registry), install
@@ -111,7 +181,7 @@ canvas fixtures, or a 3.1 canvas binding from these notes.
 - **`ImageFlipBook`** in `@gullabs/react-flipbook` — separate component, no
   children, `images: ImagePageLeaf[]`, semantic alt mirror. Tries ADR
   descriptors then falls back to `string[]` until core Phase 2 lands.
-- **Read-only bug hunt** recorded in `docs/BUG_HUNT_2026-08-29.md` (failed-image
+- **Read-only bug hunt** (2026-08-29; git history) (failed-image
   spinner routes, A3 still live, no blank leaf yet). No core patches from this
   lane.
 
@@ -666,7 +736,7 @@ work it carried. Recorded here rather than left implicit._
 
 ### Fixed — canvas renderer (first-class work, ahead of the phased plan)
 
-Found by the audit in `docs/CANVAS_FIRST_CLASS.md`, then reviewed by Codex
+Found by the pre-3.0 canvas audit (git history), then reviewed by Codex
 (`task-mtey3c3u-wlsgsc`, REQUEST_CHANGES) and corrected.
 
 Every fix has a unit test observed failing with the fix reverted. That claim was

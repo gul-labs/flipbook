@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * X4, X5, X6, X7 from `docs/CANVAS_FIRST_CLASS.md`.
+ * X4, X5, X6, X7 (historical teardown/capture audit).
  *
  * Four defects that only show up at the seams — a teardown that races the
  * render loop, a pointer capture that failed, a `destroy()` that reshuffles the
@@ -248,7 +248,7 @@ describe('X5 a drag that never captured must still end when it leaves the book',
     expect(app.getState()).toBe(during);
   });
 
-  test('lostpointercapture downgrades a captured drag to an uncaptured one', () => {
+  test('lostpointercapture without a following leave abandons the fold', () => {
     const { book: app } = book({ pageCount: 4, flippingTime: 0 });
     const { dist, x, y } = drag(app);
 
@@ -256,8 +256,36 @@ describe('X5 a drag that never captured must still end when it leaves the book',
     pointer('pointermove', dist, { clientX: x - 40, clientY: y + 10 });
     expect(app.getState()).toBe(FlippingState.USER_FOLD);
 
-    // The platform took the capture back mid-drag. From here the element stops
-    // receiving this pointer's events, so leaving is terminal.
+    pointer('lostpointercapture', dist);
+
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(app.getCurrentPageIndex()).toBe(0);
+  });
+
+  test('lostpointercapture from pointerup does not abandon a completed swipe', () => {
+    const { book: app } = book({ pageCount: 4, flippingTime: 0 });
+    const { dist, x, y } = drag(app);
+
+    pointer('pointerdown', dist, { clientX: x, clientY: y });
+    pointer('pointermove', dist, { clientX: x - 40, clientY: y + 10 });
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+
+    // `releasePointerCapture` fires lostpointercapture synchronously. That
+    // must not convert a real up into cancel.
+    pointer('pointerup', dist, { clientX: x - 40, clientY: y + 10, buttons: 0 });
+
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(app.getCurrentPageIndex()).toBe(1);
+  });
+
+  test('lostpointercapture then leave is idempotent (already abandoned)', () => {
+    const { book: app } = book({ pageCount: 4, flippingTime: 0 });
+    const { dist, x, y } = drag(app);
+
+    pointer('pointerdown', dist, { clientX: x, clientY: y });
+    pointer('pointermove', dist, { clientX: x - 40, clientY: y + 10 });
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+
     pointer('lostpointercapture', dist);
     pointer('pointerleave', dist, { buttons: 1 });
 

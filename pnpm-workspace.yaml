@@ -3,6 +3,16 @@ packages:
   - 'examples/*'
   - 'fixtures/*'
 
+# pnpm 10 defaults `auto-install-peers` to true, which pulls in OPTIONAL peers
+# nothing here asks for. That is how `stylus` (an optional peer of vite) got
+# installed, dragging in css-parse -> css -> source-map-resolve ->
+# decode-uri-component and a DoS advisory Dependabot cannot fix: every
+# non-vulnerable decode-uri-component (>=0.4.1) is ESM-only, while
+# source-map-resolve is CommonJS and require()s it, so an override breaks the
+# install instead of repairing it. We do not use stylus, so the correct fix is
+# to stop installing optional peers at all.
+autoInstallPeers: false
+
 # Dependency install scripts are blocked by default (pnpm >= 10); allow only
 # the toolchain packages that genuinely need a native build step.
 onlyBuiltDependencies:

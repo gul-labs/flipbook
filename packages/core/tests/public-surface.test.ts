@@ -43,6 +43,7 @@ describe('the engine public surface is frozen', () => {
     expect(publicMembers('PageFlip.ts')).toEqual(
       [
         'canTurn',
+        'cancelTurn',
         'clear',
         'destroy',
         'flipToPage',

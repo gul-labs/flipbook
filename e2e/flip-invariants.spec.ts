@@ -102,9 +102,13 @@ test.describe('portrait back-curl (StPageFlip #49)', () => {
     const box = await page.locator('#book .stf__block').boundingBox();
     if (!box) throw new Error('no book box');
 
-    // Forward once so a backward turn is possible.
-    await page.mouse.click(box.x + box.width - 20, box.y + 20);
-    await expect(page.locator('body[data-page="1"]')).toBeAttached();
+    // Forward once so a backward turn is possible. Drive the engine, not a
+    // corner click: WebKit CI missed the 20px inset click while Chromium did
+    // not, and this test is about the BACK clone, not click targeting.
+    await page.evaluate(() => {
+      (window as unknown as { flipbook: { flipNext(): boolean } }).flipbook.flipNext();
+    });
+    await expect(page.locator('body[data-page="1"]')).toBeAttached({ timeout: 10_000 });
 
     const mid = box.y + box.height / 2;
     await dragTo(page, { x: box.x + 12, y: mid }, { x: box.x + box.width * 0.8, y: mid });

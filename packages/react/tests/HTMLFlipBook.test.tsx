@@ -772,7 +772,7 @@ describe('lazy mounting', () => {
    * effect once `visiblePages` joined BookSnapshot / the binding). Reproduced
    * alone with a two-line mount of five pages + lazyRadius=1 — no flip needed.
    * Unskip when the binding stops looping; do NOT weaken the assertion.
-   * See docs/reviews/test-round-product-bugs-2026-08-30.md.
+   * Historical BUG-1: lazyRadius infinite re-render / heap exhaustion.
    */
   test('the lazy window still advances when the page turns', async () => {
     // Controlled page (not usePageFlip) — the contract under test is the
@@ -1794,5 +1794,194 @@ describe('onTurnProgress (Campaign C)', () => {
     } finally {
       raf.restore();
     }
+  });
+});
+
+describe('F05 — cancelTurn on the React handle', () => {
+  test('returns false before mount and when idle', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    expect(ref.current?.cancelTurn()).toBeUndefined();
+
+    render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    expect(ref.current).not.toBeNull();
+    expect(ref.current?.cancelTurn()).toBe(false);
+
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    expect(ref.current?.cancelTurn()).toBe(false);
+  });
+
+  test('abandons an in-flight turn without onPageChange', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const onPageChange = vi.fn();
+    render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={800}
+        respectReducedMotion={false}
+        onPageChange={onPageChange}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+
+    act(() => {
+      expect(ref.current?.pageFlip()?.flipNext()).toBe(true);
+      expect(ref.current?.cancelTurn()).toBe(true);
+    });
+
+    expect(ref.current?.pageFlip()?.getCurrentPageIndex()).toBe(0);
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+
+  test('captured cancelTurn after unmount returns false and does not throw', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const cancel = ref.current!.cancelTurn;
+    view.unmount();
+    expect(cancel()).toBe(false);
+  });
+
+  test('destroy() without unmount: cancelTurn is false and does not fire onTurnRejected', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const onTurnRejected = vi.fn();
+    const view = render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={0}
+        onTurnRejected={onTurnRejected}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    act(() => {
+      ref.current?.destroy();
+    });
+    expect(ref.current?.pageFlip()).toBeNull();
+    expect(ref.current?.cancelTurn()).toBe(false);
+    expect(onTurnRejected).not.toHaveBeenCalled();
+    expect(ref.current?.flipNext()).toBe(false);
+    expect(onTurnRejected).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'DESTROYED', reason: 'notReady' }),
+    );
+
+    const next = view.container.querySelector('[data-flipbook-control="next"]');
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    expect(view.container.querySelector('.stf__block')).toBeNull();
+  });
+
+  test('destroy then unmount: a captured handle reports NOT_LOADED not DESTROYED', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const rejected: TurnRejected[] = [];
+    const view = render(
+      <HTMLFlipBook
+        ref={ref}
+        width={200}
+        height={300}
+        flippingTime={0}
+        onTurnRejected={(info) => {
+          rejected.push(info);
+        }}
+      >
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const flipNext = ref.current!.flipNext;
+    act(() => {
+      ref.current?.destroy();
+    });
+    view.unmount();
+    rejected.length = 0;
+    expect(flipNext()).toBe(false);
+    expect(rejected).toEqual([expect.objectContaining({ code: 'NOT_LOADED', reason: 'notReady' })]);
+  });
+
+  test('after a remount-key rebuild, cancelTurn talks to the new engine', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+    const before = ref.current?.pageFlip();
+    expect(before).toBeTruthy();
+
+    view.rerender(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0} hardCovers>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()).not.toBe(before);
+      expect(ref.current?.pageFlip()?.isDestroyed()).toBe(false);
+    });
+    expect(before?.isDestroyed()).toBe(true);
+    expect(ref.current?.cancelTurn()).toBe(false);
+    expect(ref.current?.pageFlip()?.flipNext()).toBe(true);
+  });
+
+  test('destroy() without unmount then a children change does not throw DESTROYED', async () => {
+    const ref = createRef<FlipBookHandle | null>();
+    const view = render(
+      <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+        {pages('a', 'b', 'c', 'd')}
+      </HTMLFlipBook>,
+    );
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()?.isReady()).toBe(true);
+    });
+
+    act(() => {
+      ref.current?.pageFlip()?.destroy();
+    });
+
+    expect(() => {
+      view.rerender(
+        <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+          {pages('a', 'b', 'c', 'd', 'e')}
+        </HTMLFlipBook>,
+      );
+    }).not.toThrow();
+
+    expect(() => {
+      view.rerender(
+        <HTMLFlipBook ref={ref} width={200} height={300} flippingTime={0}>
+          {pages('a', 'b', 'c', 'd', 'e', 'f')}
+        </HTMLFlipBook>,
+      );
+    }).not.toThrow();
+
+    await waitFor(() => {
+      expect(ref.current?.pageFlip()).toBeNull();
+    });
+    expect(ref.current?.cancelTurn()).toBe(false);
   });
 });

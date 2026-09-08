@@ -3,9 +3,9 @@
 **Status:** Accepted by the owner, 2026-08-29. **Implemented** on
 `feat/gullabs-flipbook-3.0` (canvas source, tests, stubs, size ceilings).
 
-**Supersedes:** the nine-phase plan in [`../CANVAS_FIRST_CLASS.md`](../CANVAS_FIRST_CLASS.md).
-**Related:** [ADR 0001](./0001-image-page-api.md) (the canvas leaf API, now to be
-removed), [`../WEBGL_RENDERER.md`](../WEBGL_RENDERER.md).
+**Supersedes:** the pre-3.0 canvas-first-class plan and ADR 0001 (image-page
+API for canvas — never published; removed with canvas).
+**Related:** [`../WEBGL_RENDERER.md`](../WEBGL_RENDERER.md).
 
 ## Decision
 
@@ -13,9 +13,11 @@ removed), [`../WEBGL_RENDERER.md`](../WEBGL_RENDERER.md).
    `ImagePageCollection`, `ImagePage`, `canvasLeaf.ts`, `Render/imageFit.ts`,
    `canvas-loader.ts`, `ImageFlipBook`, the canvas e2e suite and fixtures, and
    the `imageFit` / `imageInset` settings all go.
-2. **The renderer abstractions STAY.** `Render`, `UI`, `PageCollection` and
-   `Page` remain abstract with a single HTML implementation each. A future
-   renderer is explicitly contemplated.
+2. **A future renderer is contemplated, but not via these classes.** The
+   abstract/concrete pairs were later collapsed into single HTML classes
+   ([ABSTRACTION-BOUNDARY.md](../ABSTRACTION-BOUNDARY.md)); the right future
+   seam is a headless controller ([WEBGL_RENDERER.md](../WEBGL_RENDERER.md)),
+   not subclassing `Render`.
 3. **`loadFromImages` / `updateFromImages` are deleted.** No runtime stubs and
    no `'CANVAS_REMOVED'` code. A method that only throws still appears on the
    published `.d.ts` and defers failure to production; deletion makes the break

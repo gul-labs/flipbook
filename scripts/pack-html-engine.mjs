@@ -85,14 +85,23 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // Raised 57_000 -> 62_000 by the OWNER for the code-complete round, alongside
 // the size-limit ceilings in packages/core/package.json. Both numbers exist and
 // both must move together; a mismatch fails the build with the other one's text,
-// which is how this was found. See docs/ROUND-CODE-COMPLETE.md.
+// which is how this was found. Keep pack-script and size-limit ceilings in lockstep.
 // 62_000 held post-B3.1 (measured 61_761 B). B3.2 delta-clear + copyOwner
 // B3.2 ~62.62 kB; B3.3–B3.4 elision helpers → 62_754 B. Ceiling 63_000 with
 // size-limit twins 63 / 15.5 / 17.4 kB.
 // PLAN-3.1 Campaign C (`turnProgress` event): measured 63_337 B raw /
 // 15.54 kB brotli / 17.57 kB gzip — feature may spend headroom (AGENTS.md §2).
 // Ceiling 63_500 with size-limit twins 63.5 / 15.6 / 17.6 kB.
-const RAW_ALARM_BYTES = 63_500;
+// F03 mid-turn resize cancel + F05 `cancelTurn`: measured 63_891 B raw /
+// 15.69 kB brotli / 17.68 kB gzip. Correctness + public API, AGENTS.md §2.
+// Destroy-guard on Render.update (reentrancy): 63_930 B. Ceiling 64_000
+// with size-limit twins 64 / 15.7 / 17.7 kB.
+// Adopt orientation before nested flipNext (portrait step): 64_065 B.
+// Ceiling 64_200 with size-limit twins 64.2 / 15.8 / 17.8 kB.
+// 2026-09-08 audit: f91a654 clean build was 65_650 B, not the claimed 64.16 kB.
+// Rebase/restyle before cancellation adds 196 B (65_846 / 16_018 / 18_127 B).
+// Owner approved 66 / 16.1 / 18.2 kB ceilings in the audit conversation.
+const RAW_ALARM_BYTES = 66_000;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

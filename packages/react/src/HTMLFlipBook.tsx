@@ -336,7 +336,10 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     } = props;
 
     const rootRef = useRef<HTMLDivElement>(null);
+    const controlsRef = useRef<HTMLDivElement>(null);
     const engineRef = useRef<PageFlip | null>(null);
+    const onPagesChangedHold = useRef(onPagesChanged);
+    onPagesChangedHold.current = onPagesChanged;
     /**
      * One slot per child, by INDEX. `null` after commit means that child never
      * called its ref — see the children effect.
@@ -375,6 +378,39 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     }, []);
     /** Page nodes currently loaded into the engine. */
     const loadedNodes = useRef<HTMLElement[] | null>(null);
+    /**
+     * `pageFlip().destroy()` without unmount is a supported handle path (P3).
+     * The engine-effect cleanup never runs, so `engineRef` would keep a dead
+     * instance and the next collection pass called `getBlockElement()` —
+     * uncaught `DESTROYED` out of a `useEffect`.
+     */
+    const pageHostRef = useRef<HTMLElement | null>(null);
+    const retiredRef = useRef(false);
+    const retireIfDestroyed = useCallback((engine: PageFlip): boolean => {
+      if (!engine.isDestroyed()) return false;
+      retiredRef.current = true;
+      loadedNodes.current = null;
+      if (engineRef.current === engine) {
+        engineRef.current = null;
+      }
+      const host = pageHostRef.current;
+      const active = typeof document === 'undefined' ? null : document.activeElement;
+      if (host !== null && active instanceof Node && host.contains(active)) {
+        rootRef.current?.focus({ preventScroll: true });
+      }
+      pageHostRef.current = null;
+      setPageHost(null);
+      setPageCount(0);
+      setEnginePage(0);
+      setAnnounced('');
+      onPagesChangedHold.current?.({
+        page: 0,
+        pageCount: 0,
+        orientation: 'landscape',
+        visiblePages: [],
+      });
+      return true;
+    }, []);
     /**
      * The rendered leaves, STAMPED with the generation whose refs fill
      * `slotsRef`. R-1b.
@@ -469,6 +505,10 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     useEffect(() => {
       // Skip the first settled render: announcing the spread the reader has not
       // turned to yet is noise, and it fires for every book on the page.
+      if (pageCount <= 0) {
+        setAnnounced('');
+        return;
+      }
       if (!didAnnounce.current) {
         didAnnounce.current = pageCount > 0;
         return;
@@ -497,13 +537,14 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
      */
     const runHandle = useCallback((page: number, animate: boolean): boolean => {
       const engine = engineRef.current;
-      if (!engine || engine.isDestroyed() || engine.getPageCount() <= 0) {
+      const destroyed = retiredRef.current || engine?.isDestroyed() === true;
+      if (!engine || destroyed || engine.getPageCount() <= 0) {
         eventHandlersRef.current.onTurnRejected?.({
           reason: 'notReady',
           direction: null,
           targetPage: page,
           landedOn: null,
-          code: 'NOT_LOADED',
+          code: destroyed ? 'DESTROYED' : 'NOT_LOADED',
         });
         return false;
       }
@@ -554,13 +595,13 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // its listener set. So the handle returned `false` with no callback at
       // all, while the unmount path reported correctly. Same refusal, two
       // contracts, decided by how the engine happened to die.
-      if (!engine || engine.isDestroyed()) {
+      if (!engine || engine.isDestroyed() || retiredRef.current) {
         eventHandlersRef.current.onTurnRejected?.({
           reason: 'notReady',
           direction,
           targetPage: null,
           landedOn: null,
-          code: 'NOT_LOADED',
+          code: retiredRef.current || engine?.isDestroyed() === true ? 'DESTROYED' : 'NOT_LOADED',
         });
         return false;
       }
@@ -572,7 +613,11 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     const handle: FlipBookHandle = useMemo(
       () => ({
-        pageFlip: () => engineRef.current,
+        pageFlip: () => {
+          const engine = engineRef.current;
+          if (!engine || engine.isDestroyed()) return null;
+          return engine;
+        },
         // R-5. These reported nothing when the engine was absent, while
         // `runHandle` reported `notReady` — two of the four methods refusing
         // silently, which is the contradiction D15 exists to remove. The engine
@@ -582,8 +627,19 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         flipPrev: (corner?: FlipCorner) => runRelative('prev', corner),
         turnToPage: (page: number) => runHandle(page, false),
         flipToPage: (page: number) => runHandle(page, true),
+        cancelTurn: () => {
+          const engine = engineRef.current;
+          if (!engine || engine.isDestroyed() || retiredRef.current) return false;
+          return engine.cancelTurn();
+        },
+        destroy: () => {
+          const engine = engineRef.current;
+          if (!engine || engine.isDestroyed() || retiredRef.current) return;
+          engine.destroy();
+          retireIfDestroyed(engine);
+        },
       }),
-      [runHandle, runRelative],
+      [runHandle, runRelative, retireIfDestroyed],
     );
 
     useImperativeHandle(ref, () => handle, [handle]);
@@ -768,6 +824,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       lastInitialPage.current = props.initialPage;
 
       const engine = new PageFlip(root, settings);
+      retiredRef.current = false;
       engineRef.current = engine;
       handlersBoundRef.current = false;
       firstControlledApply.current = true;
@@ -779,12 +836,14 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       loadedNodes.current = [];
 
       const block = engine.getBlockElement();
+      pageHostRef.current = block;
       setPageHost(block);
       setHydrated(true);
 
       return () => {
         handlersBoundRef.current = false;
         firstControlledApply.current = true;
+        retiredRef.current = false;
         const leaves = loadedNodes.current ?? [];
         engine.destroy();
 
@@ -802,6 +861,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
           if (leaf.parentElement !== block) block.appendChild(leaf);
         }
 
+        pageHostRef.current = null;
         setPageHost(null);
         loadedNodes.current = null;
         if (engineRef.current === engine) {
@@ -814,7 +874,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     useEffect(() => {
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || retireIfDestroyed(engine)) return;
       // MIN-6. Typed `LiveSetting` at the call site, so D19's compile-time
       // fence applies to the binding too. Passing the `FlipOptions` variable
       // skipped excess-property checking, which meant the one call site that
@@ -872,6 +932,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
 
     useEffect(() => {
       const engine = engineRef.current;
+      if (!engine || retireIfDestroyed(engine)) return;
 
       // R-1. GUARD BEFORE READING.
       //
@@ -886,7 +947,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // which fills the slots has happened: `pages` is state, so it only holds
       // the new list after that commit, and the refs fire during it. Softening
       // the throw instead would have thrown away the whole point of D1.
-      if (!engine || !pageHost || pages.list.length === 0) return;
+      if (!pageHost || pages.list.length === 0) return;
       // R-1b. Identity of the stamp, not equality of lengths. `pages` is state,
       // so it only carries this generation after the commit that fired the refs
       // filling `slotsRef` for it.
@@ -938,7 +999,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // not a turn on either side of the boundary. `initialPage` is part of the
       // remount key, so changing it rebuilds rather than being ignored (D6).
       setEnginePage(engine.getCurrentPageIndex());
-    }, [pages, pageHost, bindHandlers, remountKey, readNodes]);
+    }, [pages, pageHost, bindHandlers, remountKey, readNodes, retireIfDestroyed]);
 
     /*
      * Every leaf is in the DOM at all times, stacked, so a link or button on a
@@ -970,7 +1031,9 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // Before the collection loads there is no spread yet, and inerting every
       // leaf for that one commit would blank the tab order of a mounting book.
       // Same commit-ordering guard as the load effect — see R-1 there.
-      if (pageCount <= 0 || pages.list.length === 0) return;
+      // Destroy-without-unmount drops the portal; slots go null and a later
+      // children pass must not call readNodes() (DETACHED_PAGE).
+      if (!pageHost || pageCount <= 0 || pages.list.length === 0) return;
       if (pages.gen !== slotGeneration.current) return;
 
       const nodes = readNodes();
@@ -1015,7 +1078,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         // The nodes belong to the consumer; leave none of ours behind.
         for (const node of nodes) node.removeAttribute('inert');
       };
-    }, [pages, visiblePages, pageCount, readNodes]);
+    }, [pages, visiblePages, pageCount, readNodes, pageHost]);
 
     useEffect(() => {
       const engine = engineRef.current;
@@ -1127,7 +1190,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
       if (!useKeyboard) return;
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || engine.isDestroyed()) return;
 
       // A MODIFIED arrow is somebody else's shortcut, and swallowing it (with
       // `preventDefault`, no less) takes a documented browser behaviour away
@@ -1139,9 +1202,8 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // `aria-keyshortcuts="ArrowLeft ArrowRight Home End"` promises.
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 
-      // A keydown only reaches this handler by bubbling up from
-      // `document.activeElement`. If that is not the root itself, focus is on
-      // some focusable thing INSIDE a page, and arrow keys belong to it.
+      // The root and this book's own navigation controls share shortcuts.
+      // Other descendants (including a nested book) own their own keys.
       //
       // This used to ask `FLIPBOOK_INTERACTIVE_SELECTOR` instead — a list built
       // for POINTER targets (what should not start a fold). As a keyboard rule
@@ -1150,17 +1212,19 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       // widget that is focusable without one of those roles is not on it, so
       // the book stole its arrow keys and called `preventDefault`. Focus is the
       // authority on who owns a key press; a selector is not.
-      if (event.target !== event.currentTarget) return;
+      const fromOwnControls =
+        event.target instanceof Node && controlsRef.current?.contains(event.target) === true;
+      if (event.target !== event.currentTarget && !fromOwnControls) return;
 
       const rtl = props.readingDirection === 'rtl';
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        if (rtl) engine.flipPrev();
-        else engine.flipNext();
+        if (rtl) runRelative('prev');
+        else runRelative('next');
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        if (rtl) engine.flipNext();
-        else engine.flipPrev();
+        if (rtl) runRelative('next');
+        else runRelative('prev');
       } else if (event.key === 'Home') {
         event.preventDefault();
         // D7. `runHandle` REPORTS the refusal. These two used to swallow it
@@ -1197,9 +1261,13 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         // the positioning context mid-session. The engine's add stays (it is
         // idempotent, and the engine must work without React); this makes React
         // aware of a class it was silently clobbering.
-        className={
-          className === undefined || className === '' ? 'stf__parent' : `${className} stf__parent`
-        }
+        className={[
+          className === undefined || className === '' ? undefined : className,
+          'stf__parent',
+          props.allowTouchScroll === false ? '--lock-touch-scroll' : undefined,
+        ]
+          .filter((part): part is string => Boolean(part))
+          .join(' ')}
         style={style}
         data-flipbook-placeholder={hydrated ? undefined : ''}
         aria-label={ariaLabel}
@@ -1250,6 +1318,7 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         */}
         {controls !== 'none' ? (
           <div
+            ref={controlsRef}
             data-flipbook-controls={controls === 'visible' ? 'visible' : ''}
             style={controls === 'visible' ? undefined : VISUALLY_HIDDEN_UNTIL_FOCUS}
           >

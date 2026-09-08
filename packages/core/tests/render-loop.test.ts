@@ -6,7 +6,7 @@
  * The shared render loop — rAF scheduling, animation frame discipline, and
  * orientation measurement on the concrete `Render`.
  *
- * Covers three defects from `docs/CANVAS_FIRST_CLASS.md`:
+ * Covers three historical render-loop defects:
  *
  *  - **C4** the final animation frame was dropped whenever rAF skipped a frame;
  *  - **C5** a zero-size container voted PORTRAIT and emitted `changeOrientation`;
@@ -23,7 +23,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ADOPT_ORIENTATION, GET_UI } from '../src/internal';
+import { ADOPT_ORIENTATION, GET_UI, INVALIDATE_FOLD_GEOMETRY } from '../src/internal';
 
 import { PageFlipError } from '../src/errors';
 import { FlipDirection } from '../src/Flip/Flip';
@@ -86,6 +86,8 @@ function makeHarness(
     [GET_UI]: () => ({ getDistElement: () => box }),
     getSettings: () => setting,
     [ADOPT_ORIENTATION]: updateOrientation,
+    [INVALIDATE_FOLD_GEOMETRY]: () => undefined,
+    isDestroyed: () => false,
   } as unknown as PageFlip;
 
   const render = new TestRender(app, setting, document.createElement('div'));
@@ -574,7 +576,7 @@ describe('R3 — a DOM-less environment fails with a typed error', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * R4 — R7. See docs/CANVAS_FIRST_CLASS.md.
+ * R4 — R7 (historical render audit).
  * ------------------------------------------------------------------------- */
 
 describe('R4 — a turn chained from onAnimateEnd survives', () => {

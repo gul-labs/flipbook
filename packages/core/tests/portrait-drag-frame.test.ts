@@ -1,5 +1,5 @@
 /**
- * X1 and X3 from `docs/CANVAS_FIRST_CLASS.md`.
+ * X1 and X3 (historical portrait-drag audit).
  *
  * X1 — **a portrait BACK drag could not be small and could not be cancelled**,
  * in LTR as well as RTL. A portrait book's single visible leaf sits on the

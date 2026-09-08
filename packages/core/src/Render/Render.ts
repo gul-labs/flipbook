@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { at } from '../arrayAccess';
-import { GET_UI, GET_COLLECTION, ADOPT_ORIENTATION } from '../internal';
+import { GET_UI, GET_COLLECTION, ADOPT_ORIENTATION, INVALIDATE_FOLD_GEOMETRY } from '../internal';
 import type { PageFlip } from '../PageFlip';
 import type { Point, PageRect, RectPoints } from '../BasicTypes';
 import { FlipDirection } from '../Flip/Flip';
@@ -182,6 +182,12 @@ export class Render {
   private pageRect: RectPoints | null = null;
   /** Current book area */
   private boundsRect: PageRect | null = null;
+  /**
+   * True while `ADOPT_ORIENTATION` is restyling the wrapper. That restyle
+   * changes the dist box and re-enters `update()`; those inner bounds changes
+   * must not abandon a turn started from the outer cancel's `changeState`.
+   */
+  private adoptingOrientation = false;
 
   /**
    * Timestamp of the frame currently being rendered, or `null` when no frame
@@ -814,12 +820,36 @@ export class Render {
     // still let the subclass run the left/right `setOrientation` stamps below.
     // Bounds/orientation adopt are gated; the stamps always run.
     if (observed || this.orientation === null) {
-      this.boundsRect = rect;
+      const previous = this.boundsRect;
+      const orientationChanged = this.orientation !== orientation;
+      const boundsChanged =
+        observed &&
+        previous !== null &&
+        (previous.left !== rect.left ||
+          previous.top !== rect.top ||
+          previous.width !== rect.width ||
+          previous.height !== rect.height ||
+          previous.pageWidth !== rect.pageWidth);
 
-      if (this.orientation !== orientation) {
+      // Adopt the wrapper and spread table before announcing cancellation.
+      // Its restyle can measure another box; the inner update must finish
+      // before a READ listener captures geometry for a replacement turn.
+      this.boundsRect = rect;
+      if (orientationChanged) {
         this.orientation = orientation;
-        this.app[ADOPT_ORIENTATION](orientation);
       }
+
+      if (orientationChanged) {
+        this.adoptingOrientation = true;
+        try {
+          this.app[ADOPT_ORIENTATION](orientation);
+        } finally {
+          this.adoptingOrientation = false;
+        }
+      } else if (boundsChanged && !this.adoptingOrientation) {
+        this.app[INVALIDATE_FOLD_GEOMETRY]();
+      }
+      if (this.app.isDestroyed()) return;
     }
 
     if (this.rightPage !== null) {

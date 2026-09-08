@@ -122,6 +122,12 @@ export class UI {
    * routing that pointer's events here after it leaves.
    */
   private pointerCaptured = false;
+  /**
+   * True while `pointerup` / `pointercancel` / `cancelGesture` is releasing
+   * capture. `lostpointercapture` fires synchronously from that release and
+   * must not treat it as a steal (which would abandon a completed turn).
+   */
+  private endingPointerGesture = false;
   /** Whether `autoSize` currently owns the host's width / max-width. */
   private autoSizeOwnsHost = false;
   /** Host inline styles captured at construction so `destroy()` can restore them. */
@@ -148,6 +154,7 @@ export class UI {
    * {@link hostEngineCount}.
    */
   private hostHadParentClass = false;
+  private hostHadLockTouchScroll = false;
 
   constructor(
     inBlock: HTMLElement,
@@ -195,6 +202,8 @@ export class UI {
     // Only the first arrival can observe the pre-existing state; every later
     // one sees the class the earlier engine added.
     this.hostHadParentClass = engines === 0 && inBlock.classList.contains('stf__parent');
+    this.hostHadLockTouchScroll =
+      engines === 0 && inBlock.classList.contains('--lock-touch-scroll');
     inBlock.classList.add('stf__parent');
     inBlock.insertAdjacentHTML('afterbegin', '<div class="stf__wrapper"></div>');
 
@@ -279,6 +288,8 @@ export class UI {
 
     this.autoSizeOwnsHost = setting.autoSize;
 
+    host.classList.toggle('--lock-touch-scroll', setting.allowTouchScroll === false);
+
     // U9. `host.style.display = 'block'` used to run here, on construction AND
     // on every `updateSettings`. It was redundant and actively harmful:
     // `.stf__parent` already declares `display:block` (styles.ts), so the class
@@ -361,6 +372,9 @@ export class UI {
       hostEngineCount.delete(this.parentElement);
       // Last one out. Only now is it safe to ask whether the class was ours.
       if (!this.hostHadParentClass) this.parentElement.classList.remove('stf__parent');
+      if (!this.hostHadLockTouchScroll) {
+        this.parentElement.classList.remove('--lock-touch-scroll');
+      }
     }
     this.parentElement.style.minWidth = this.hostStyles.minWidth;
     this.parentElement.style.minHeight = this.hostStyles.minHeight;
@@ -551,10 +565,25 @@ export class UI {
   }
 
   /**
-   * Rebind input handlers after `updateSettings({ useMouseEvents })`.
+   * Rebind input handlers after `updateSettings({ pointerInput })`.
+   *
+   * `keepFold` is for the geometry+pointer combined path: the fold was already
+   * abandoned against the NEW box, and a nested `flipNext` from that
+   * `changeState` must not be killed by a second `cancelGesture`. Pointer
+   * bookkeeping still drops — the listeners are going away.
    */
-  public refreshHandlers(): void {
-    this.removeHandlers();
+  public refreshHandlers(options?: { keepFold?: boolean }): void {
+    if (options?.keepFold === true) {
+      this.endingPointerGesture = true;
+      try {
+        this[DROP_POINTER_GESTURE]();
+      } finally {
+        this.endingPointerGesture = false;
+      }
+      this.unbindPointerListeners();
+    } else {
+      this.removeHandlers();
+    }
     this.setHandlers();
   }
 
@@ -574,14 +603,7 @@ export class UI {
     this.update();
   }
 
-  private removeHandlers(): void {
-    // Unbinding can happen in the middle of a gesture — `refreshHandlers` from
-    // `updateSettings({ useMouseEvents })`, and `updateItems`. The real
-    // `pointerup` then lands on nothing, so the gesture has to be ended here
-    // or the engine stays in `USER_FOLD` with `isUserTouch` set and the fold
-    // follows a button-less cursor forever.
-    this.cancelGesture();
-
+  private unbindPointerListeners(): void {
     this.distElement.removeEventListener('pointerdown', this.onPointerDown);
     this.distElement.removeEventListener('pointermove', this.onPointerMove);
     this.distElement.removeEventListener('pointerup', this.onPointerUp);
@@ -589,6 +611,16 @@ export class UI {
     this.distElement.removeEventListener('pointerleave', this.onPointerLeave);
     this.distElement.removeEventListener('lostpointercapture', this.onLostPointerCapture);
     this.distElement.removeEventListener('dragstart', this.onDragStart);
+  }
+
+  private removeHandlers(): void {
+    // Unbinding can happen in the middle of a gesture — `refreshHandlers` from
+    // `updateSettings({ pointerInput })`, and `updateItems`. The real
+    // `pointerup` then lands on nothing, so the gesture has to be ended here
+    // or the engine stays in `USER_FOLD` with `isUserTouch` set and the fold
+    // follows a button-less cursor forever.
+    this.cancelGesture();
+    this.unbindPointerListeners();
   }
 
   private setHandlers(): void {
@@ -610,8 +642,13 @@ export class UI {
     // book" needs no listeners at all.
     if (this.app.getSettings().pointerInput.length === 0) return;
 
-    this.distElement.addEventListener('pointerdown', this.onPointerDown);
-    this.distElement.addEventListener('pointermove', this.onPointerMove);
+    // `preventDefault` on touch pointerdown/move is a no-op in a passive
+    // listener. iOS Safari treats unspecified as passive for touch-derived
+    // pointer events; `{passive:false}` is what makes `allowTouchScroll: false`
+    // actually suppress scrolling.
+    const pointerListen: AddEventListenerOptions = { passive: false };
+    this.distElement.addEventListener('pointerdown', this.onPointerDown, pointerListen);
+    this.distElement.addEventListener('pointermove', this.onPointerMove, pointerListen);
     this.distElement.addEventListener('pointerup', this.onPointerUp);
     this.distElement.addEventListener('pointercancel', this.onPointerCancel);
     this.distElement.addEventListener('pointerleave', this.onPointerLeave);
@@ -632,6 +669,7 @@ export class UI {
 
     if (typeof window !== 'undefined' && window.visualViewport) {
       window.visualViewport.addEventListener('resize', this.onVisualViewportResize);
+      window.visualViewport.addEventListener('scroll', this.onVisualViewportResize);
     }
   }
 
@@ -645,6 +683,7 @@ export class UI {
 
     if (typeof window !== 'undefined' && window.visualViewport) {
       window.visualViewport.removeEventListener('resize', this.onVisualViewportResize);
+      window.visualViewport.removeEventListener('scroll', this.onVisualViewportResize);
     }
   }
 
@@ -733,14 +772,20 @@ export class UI {
   private releaseCapturedPointer(): void {
     if (this.activePointerId === null) return;
 
+    // Every engine-initiated release fires `lostpointercapture` synchronously.
+    // That must not look like an OS steal (`cancelGesture` → second `abandon`
+    // that kills a nested `flipNext` from the first READ).
+    const ownedEnd = !this.endingPointerGesture;
+    this.endingPointerGesture = true;
     try {
       this.distElement.releasePointerCapture(this.activePointerId);
     } catch {
       // already released
+    } finally {
+      this.activePointerId = null;
+      this.pointerCaptured = false;
+      if (ownedEnd) this.endingPointerGesture = false;
     }
-
-    this.activePointerId = null;
-    this.pointerCaptured = false;
   }
 
   /**
@@ -775,25 +820,31 @@ export class UI {
     // moment earlier. Pinned here rather than left implicit: a future tail that
     // is NOT idempotent would be silently skipped, and nothing else in the file
     // would say why.
-    const wasActive = this.touchPoint !== null || this.activePointerId !== null;
-    const lastPos = this.touchPoint?.point ?? { x: 0, y: 0 };
+    const ownedEnd = !this.endingPointerGesture;
+    this.endingPointerGesture = true;
+    try {
+      const wasActive = this.touchPoint !== null || this.activePointerId !== null;
+      const lastPos = this.touchPoint?.point ?? { x: 0, y: 0 };
 
-    this[DROP_POINTER_GESTURE]();
+      this[DROP_POINTER_GESTURE]();
 
-    if (!wasActive) return;
+      if (!wasActive) return;
 
-    // The controller is the witness that a mode is attached: it and the page
-    // collection are wired in the same step, so this also proves `show()`
-    // below has something to draw and cannot throw `NOT_LOADED`.
-    const flip = this.app[GET_FLIP]();
-    if (flip === null) return;
+      // The controller is the witness that a mode is attached: it and the page
+      // collection are wired in the same step, so this also proves `show()`
+      // below has something to draw and cannot throw `NOT_LOADED`.
+      const flip = this.app[GET_FLIP]();
+      if (flip === null) return;
 
-    this.app.userStop(lastPos, true);
-    flip.abandon();
+      this.app.userStop(lastPos, true);
+      flip.abandon();
 
-    // Repaint the spread: the last frame drawn was a fold that no longer
-    // exists. Skipped during teardown, where there is nothing left to draw to.
-    if (!this.app.isDestroyed()) this.app[GET_COLLECTION]().show();
+      // Repaint the spread: the last frame drawn was a fold that no longer
+      // exists. Skipped during teardown, where there is nothing left to draw to.
+      if (!this.app.isDestroyed()) this.app[GET_COLLECTION]().show();
+    } finally {
+      if (ownedEnd) this.endingPointerGesture = false;
+    }
   }
 
   private swipeDirection(dx: number): 'prev' | 'next' {
@@ -813,14 +864,18 @@ export class UI {
   /**
    * The browser took the capture back mid-gesture.
    *
-   * The pointer id stays the gesture's owner — the finger is still down — but
-   * from here on its events are no longer routed to this element, so leaving
-   * the block is terminal exactly as it is for a gesture that never captured.
+   * A release from our own `pointerup` / `pointercancel` / `cancelGesture`
+   * fires this synchronously — those paths already end the gesture. A steal
+   * with no following leave/up/cancel (iOS taking the pan) used to leave
+   * `USER_FOLD` for the life of the book. That steal is `pointercancel`:
+   * abandon, never swipe-commit.
    */
   private onLostPointerCapture = (e: PointerEvent): void => {
     if (this.activePointerId !== e.pointerId) return;
 
     this.pointerCaptured = false;
+    if (this.endingPointerGesture) return;
+    this.cancelGesture();
   };
 
   /**
@@ -947,9 +1002,9 @@ export class UI {
 
     this.app.startUserTouch(pos);
 
-    if (!this.app.getSettings().allowTouchScroll && e.pointerType !== 'mouse') {
-      if (e.cancelable) e.preventDefault();
-    }
+    // Do not preventDefault on pointerdown when locked: that is the first
+    // finger of a pinch, and `{passive:false}` would cancel WCAG 1.4.4 zoom.
+    // Pan is suppressed by `--lock-touch-scroll { touch-action: pinch-zoom }`.
   };
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -988,6 +1043,16 @@ export class UI {
       }
     } else {
       this.app.userMove(pos, isTouch);
+      // Only once a fold is live — preventDefault on every locked move cancels
+      // pinch-zoom. CSS `touch-action: pinch-zoom` already blocks pan.
+      if (
+        !this.app.getSettings().allowTouchScroll &&
+        isTouch &&
+        this.app.getState() !== FlippingState.READ &&
+        e.cancelable
+      ) {
+        e.preventDefault();
+      }
     }
   };
 
@@ -995,45 +1060,50 @@ export class UI {
     // Lifting a finger that never owned the gesture must not end it.
     if (!this.isActivePointer(e)) return;
 
-    this.releaseCapturedPointer();
-    const pos = this.getMousePos(e.clientX, e.clientY);
-    let isSwipe = false;
+    this.endingPointerGesture = true;
+    try {
+      this.releaseCapturedPointer();
+      const pos = this.getMousePos(e.clientX, e.clientY);
+      let isSwipe = false;
 
-    if (this.touchPoint !== null) {
-      const dx = pos.x - this.touchPoint.point.x;
-      const distY = Math.abs(pos.y - this.touchPoint.point.y);
-      // Read live: caching this at construction meant `updateSettings` was
-      // accepted and reported back by `getSettings()` while the gesture kept
-      // using the old threshold.
-      const { swipeDistance } = this.app.getSettings();
+      if (this.touchPoint !== null) {
+        const dx = pos.x - this.touchPoint.point.x;
+        const distY = Math.abs(pos.y - this.touchPoint.point.y);
+        // Read live: caching this at construction meant `updateSettings` was
+        // accepted and reported back by `getSettings()` while the gesture kept
+        // using the old threshold.
+        const { swipeDistance } = this.app.getSettings();
 
-      if (
-        Math.abs(dx) > swipeDistance &&
-        distY < swipeDistance * 2 &&
-        Date.now() - this.touchPoint.time < this.swipeTimeout
-      ) {
-        // `touchPoint.point` is relative to `distElement`; `rect.height` is the
-        // book's. Comparing them directly ignored `rect.top`, so on a book
-        // centred in a taller host every upper-half swipe was classified
-        // BOTTOM. `Flip.start` converts first — this call site was the odd one
-        // out. (`>=` matches `Flip.start`'s split exactly.)
-        const render = this.app[GET_RENDER]();
-        const bookPos = render.convertToBook(this.touchPoint.point);
-        const corner =
-          bookPos.y >= render.getRect().height / 2 ? FlipCorner.BOTTOM : FlipCorner.TOP;
+        if (
+          Math.abs(dx) > swipeDistance &&
+          distY < swipeDistance * 2 &&
+          Date.now() - this.touchPoint.time < this.swipeTimeout
+        ) {
+          // `touchPoint.point` is relative to `distElement`; `rect.height` is the
+          // book's. Comparing them directly ignored `rect.top`, so on a book
+          // centred in a taller host every upper-half swipe was classified
+          // BOTTOM. `Flip.start` converts first — this call site was the odd one
+          // out. (`>=` matches `Flip.start`'s split exactly.)
+          const render = this.app[GET_RENDER]();
+          const bookPos = render.convertToBook(this.touchPoint.point);
+          const corner =
+            bookPos.y >= render.getRect().height / 2 ? FlipCorner.BOTTOM : FlipCorner.TOP;
 
-        if (this.swipeDirection(dx) === 'prev') {
-          this.app.flipPrev(corner);
-        } else {
-          this.app.flipNext(corner);
+          if (this.swipeDirection(dx) === 'prev') {
+            this.app.flipPrev(corner);
+          } else {
+            this.app.flipNext(corner);
+          }
+          isSwipe = true;
         }
-        isSwipe = true;
+
+        this.touchPoint = null;
       }
 
-      this.touchPoint = null;
+      this.app.userStop(pos, isSwipe);
+    } finally {
+      this.endingPointerGesture = false;
     }
-
-    this.app.userStop(pos, isSwipe);
   };
 
   /**

@@ -24,7 +24,7 @@ pnpm test               # vitest run, both projects
 pnpm build              # tsup per package (see caveat below)
 pnpm typecheck          # tsc --noEmit per package
 pnpm lint               # eslint flat config, repo-wide
-pnpm size               # size-limit on the packed html engine (63.5 kB raw / 15.6 kB brotli / 17.6 kB gzip)
+pnpm size               # size-limit on the packed html engine (66 kB raw / 16.1 kB brotli / 18.2 kB gzip)
 node ./scripts/check-isolated-types.mjs   # pnpm-isolated consumer type fixture
 ```
 
@@ -76,10 +76,10 @@ Two packages, one direction of dependency: `react` → `core` (`workspace:*`). C
 
 The former abstract/concrete pairs (`UI`/`HTMLUI`, `Page`/`HTMLPage`,
 `Render`/`HTMLRender`, and `PageCollection`/`HTMLPageCollection`) are
-**collapsed** — see `docs/ABSTRACTION-BOUNDARY.md` and `docs/PLAN-3.1.md`. The
-abstract bases were never a renderer seam: `Render` holds ~78% of the renderer
-and is DOM-bound (`offsetWidth` measurement, a `navigator.userAgent` sniff,
-pixel-space conversion). Do not re-open inheritance at these lines.
+**collapsed** — see `docs/ABSTRACTION-BOUNDARY.md`. The abstract bases were
+never a renderer seam: `Render` holds ~78% of the renderer and is DOM-bound
+(`offsetWidth` measurement, a `navigator.userAgent` sniff, pixel-space
+conversion). Do not re-open inheritance at these lines.
 
 `PageFlip` answers questions rather than handing out its collaborators:
 `getVisiblePages()`, `canTurn(dir)`, `getBlockElement()`, `getPageElement(i)`,
@@ -182,15 +182,17 @@ tears the book down mid-animation.
 
 ## Known gaps in the current state
 
-- **Bundle size.** The packed HTML engine is **63.38 kB raw / 15.56 kB brotli /
-  17.54 kB gzip** against ceilings of **63.5 / 15.6 / 17.6 kB**, re-ratcheted
-  after PLAN-3.1 Campaign C (`turnProgress`, +~0.58 kB raw vs post-B3.4). An
-  agent may not raise ceilings without cause (AGENTS.md §2). Re-measure with
+- **Bundle size.** The audited packed HTML engine is **65.846 kB raw / 16.018 kB
+  brotli / 18.127 kB gzip** against owner-approved ceilings of **66 / 16.1 /
+  18.2 kB** (2026-09-08). The earlier f91a654 measurement was inaccurate. An
+  agent may not raise ceilings without cause (AGENTS.md §2). These compressed
+  byte counts use Node zlib defaults; size-limit reports 18.07 kB gzip with its
+  compression settings. Re-measure with
   `pnpm size` before quoting these. The §5 target of 35 kB minified is
   **retired**: upstream `page-flip@2.0.7` is itself 44,058 B minified (measured
   from its published tarball), so that target asked this fork to be ~20% smaller
   than the thing it forks while doing strictly more. See
-  `docs/QUALITY_BAR_CLIMB.md` for the measured comparison, and `AGENTS.md` §2
+  `docs/QUALITY.md` for the measured comparison, and `AGENTS.md` §2
   for the policy: dead code always goes, working code never goes to buy bytes,
   and a correctness fix may spend the headroom **and say so**.
 - **TypeScript is pinned below latest.** 6.0.3, not 7.0.2, because

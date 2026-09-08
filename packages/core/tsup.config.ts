@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import type { MinifyOptions } from 'terser';
 
 /**
- * Terser knobs measured 2026-08-28 (see docs/QUALITY_BAR_CLIMB.md).
+ * Terser knobs measured 2026-08-28 (see docs/QUALITY.md).
  *
  * `mangle.properties` is intentionally off. Even an internal-only regex broke
  * cross-chunk class fields under tsup `splitting: true` (e.g. `leftPage` /
