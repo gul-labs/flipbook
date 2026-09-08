@@ -55,10 +55,11 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at the maintainer
-contact on [`GOVERNANCE.md`](./GOVERNANCE.md) or via a private GitHub Security
-Advisory / maintainer DM. All complaints will be reviewed and investigated
-promptly and fairly.
+reported to the maintainer [@atifgul99](https://github.com/atifgul99) (see
+[`GOVERNANCE.md`](./GOVERNANCE.md)), or via a private
+[GitHub Security Advisory](https://github.com/gul-labs/flipbook/security/advisories/new)
+when the report involves a vulnerability. All complaints will be reviewed and
+investigated promptly and fairly.
 
 ## Attribution
 

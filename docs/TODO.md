@@ -1,8 +1,14 @@
 # TODO — open backlog
 
-Canonical list of work that sits **below the locked 3.0 surface**
-([API-CONTRACT.md](./API-CONTRACT.md)). Everything here is additive or internal.
-A item that needs a breaking change goes to the owner first.
+Canonical list of work that sits **below or beside the locked 3.0 surface**
+([API-CONTRACT.md](./API-CONTRACT.md)).
+
+| Section                 | May reopen locked surface?          |
+| ----------------------- | ----------------------------------- |
+| API additions           | No — additive only                  |
+| Contract amendments     | **Yes — owner + ADR required**      |
+| Internal / architecture | No (unless it changes public types) |
+| Examples & repo polish  | No                                  |
 
 Accepted constraints that are **not** work items live in
 [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
@@ -37,9 +43,14 @@ Accepted constraints that are **not** work items live in
 - [ ] **`centerClosedBook` option** — engine parks a closed book in the right
       half of the stage; consumers hand-build slide-to-center. At minimum: a
       documented recipe with `changeState` + `visiblePages`.
+
+## Contract amendments (owner + ADR first)
+
+These are **not** silent additive work. They change `FlipbookEventMap` or
+other locked surface and need an explicit contract amendment before code.
+
 - [ ] **Correlated turn lifecycle events (F06)** — optional `turnStarted` /
-      terminal pair with a turn id for narration hosts. Touches the locked
-      event map; needs contract amendment + changeset. Not required for basic
+      terminal pair with a turn id for narration hosts. Not required for basic
       WebView rendering. See [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md).
 
 ## Internal / architecture
