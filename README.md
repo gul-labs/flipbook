@@ -36,15 +36,18 @@ Canvas / images mode was **removed** in 3.0.0 ([ADR 0002](./docs/adr/0002-remove
 
 ### Browser support
 
-| Browser                    | Status                                                                |
-| -------------------------- | --------------------------------------------------------------------- |
-| Chromium (Chrome, Edge, …) | Supported — unit + Playwright e2e                                     |
-| Safari / iOS (WebKit)      | Supported — Playwright WebKit e2e (portrait back-curl lives here)     |
-| Firefox                    | Expected to work (Pointer Events + modern CSS); **not** in CI e2e yet |
-| IE / legacy Edge           | Not supported                                                         |
+| Browser                    | Status                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Chromium (Chrome, Edge, …) | Supported — unit + Playwright e2e                                                |
+| Safari / desktop WebKit    | Supported — Playwright WebKit e2e (portrait back-curl lives here)                |
+| iOS Safari / WKWebView     | **Expected** — same engine as WebKit e2e; not yet signed off on physical devices |
+| Android WebView            | **Expected** — Pointer Events path; not in CI                                    |
+| Firefox                    | Expected to work (Pointer Events + modern CSS); **not** in CI e2e yet            |
+| IE / legacy Edge           | Not supported                                                                    |
 
-Needs a evergreen browser with **Pointer Events**, `ResizeObserver`, and CSS
-`clip-path`. No IE polyfill path.
+Needs an evergreen browser with **Pointer Events**, `ResizeObserver`, and CSS
+`clip-path`. No IE polyfill path. Playwright WebKit is meaningful coverage; it
+is not a substitute for a physical iPhone/iPad WebView dogfood.
 
 ---
 
@@ -94,13 +97,12 @@ Measured from the published artifacts, both terser-minified, zero runtime depend
 |                                            | raw (min) |    gzip |  brotli |
 | ------------------------------------------ | --------: | ------: | ------: |
 | `page-flip@2.0.7` (upstream)               |   44.1 kB | 10.4 kB |  9.3 kB |
-| `@gullabs/flipbook-core` HTML engine (3.1) |   63.3 kB | 17.6 kB | 15.5 kB |
+| `@gullabs/flipbook-core` HTML engine (3.1) |   65.8 kB | 18.1 kB | 16.0 kB |
 
 Larger than upstream because of RTL, reduced motion, typed errors, validation,
 and the portrait back-curl fix. This is not a smaller drop-in replacement; it is
-a maintained one. CI ceilings on the packed HTML engine are **64.2 kB raw /
-15.8 kB brotli / 17.8 kB gzip** (raised for F03 mid-turn resize cancel + F05
-`cancelTurn`; AGENTS.md §2).
+a maintained one. CI ceilings on the packed HTML engine are **66 kB raw /
+16.1 kB brotli / 18.2 kB gzip** (see [`docs/QUALITY.md`](./docs/QUALITY.md)).
 
 Reproduce with `npm pack page-flip@2.0.7` and `pnpm build && pnpm size`.
 
@@ -141,17 +143,14 @@ import { useState } from 'react';
 import HTMLFlipBook, { type BookSnapshot } from '@gullabs/react-flipbook';
 
 export function Book() {
-  // Seed the counter from onLoaded — it carries the real pageCount and the
-  // resolved page, so the label never renders "Page 1 of 0". onPageChange
-  // fires only for real turns, never on mount.
-  const [book, setBook] = useState({ page: 0, pageCount: 0 });
+  // Seed from onLoaded (real page + pageCount). onPageChange fires only for
+  // real turns, never on mount — so do not seed the counter from it alone.
+  const [book, setBook] = useState<{ page: number; pageCount: number } | null>(null);
   const sync = (s: BookSnapshot) => setBook({ page: s.page, pageCount: s.pageCount });
 
   return (
     <>
-      <p>
-        Page {book.page + 1} of {book.pageCount}
-      </p>
+      <p>{book ? `Page ${book.page + 1} of ${book.pageCount}` : 'Loading…'}</p>
       <HTMLFlipBook
         width={300}
         height={500}
@@ -178,11 +177,26 @@ export function Book() {
 
 ### Examples
 
-| Example            | Path                   | What it shows                               |
-| ------------------ | ---------------------- | ------------------------------------------- |
-| Vanilla HTML       | `examples/vanilla/`    | HTML pages, golden / gesture e2e host       |
-| Vite + React       | `examples/vite-react/` | Picture book, RTL chrome, controlled `page` |
-| Next.js App Router | `examples/nextjs/`     | SSR placeholder → hydrate, real curl        |
+| Example            | Path                      | What it shows                                         |
+| ------------------ | ------------------------- | ----------------------------------------------------- |
+| Vanilla HTML       | `examples/vanilla/`       | HTML pages, golden / gesture e2e host                 |
+| Vite + React       | `examples/vite-react/`    | Picture book, RTL chrome, controlled `page`           |
+| Next.js App Router | `examples/nextjs/`        | SSR placeholder → hydrate, real curl                  |
+| Mobile reader      | `examples/mobile-reader/` | Live HTML text, token highlight, resize-while-turning |
+
+---
+
+## Docs
+
+| Doc                                                       | Audience                                      |
+| --------------------------------------------------------- | --------------------------------------------- |
+| [MIGRATION.md](./MIGRATION.md)                            | Upgrading from `page-flip` / `react-pageflip` |
+| [docs/API-CONTRACT.md](./docs/API-CONTRACT.md)            | Locked 3.0 public surface                     |
+| [docs/KNOWN-LIMITATIONS.md](./docs/KNOWN-LIMITATIONS.md)  | Accepted constraints (not silent bugs)        |
+| [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md)      | What stays live on a page during a curl       |
+| [docs/TODO.md](./docs/TODO.md)                            | Open additive backlog                         |
+| [docs/README.md](./docs/README.md)                        | Full docs index                               |
+| [SUPPORT.md](./SUPPORT.md) · [SECURITY.md](./SECURITY.md) | Help and vulnerability reporting              |
 
 ---
 

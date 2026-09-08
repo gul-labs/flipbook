@@ -65,10 +65,11 @@ own answer below.
 
 **A book opening at page 0 now emits no `flip` on load at all** —
 `currentPageIndex` is initialised to `0`, so nothing changes. The mount noise
-disappears entirely rather than halving. `init` is the load announcement and
-carries the resolved index; a consumer seeding initial state from the first
-`flip` must use `init` instead. Adding a first-emit exception was rejected: it
-would re-create precisely the mount noise being removed.
+disappears entirely rather than halving. Seed initial UI state from **`loaded`**
+(every load, including the first) or **`ready`** (once per engine) — both carry
+a `BookSnapshot` with the resolved page and count. Upstream's single `init`
+event was split into those two. Adding a first-emit `flip` exception was
+rejected: it would re-create precisely the mount noise being removed.
 
 **An orientation change that MOVES the head still emits**, and should.
 `flip`'s payload _is_ `getCurrentPageIndex()`; if that value changes and no
@@ -83,8 +84,9 @@ old orientation. Recorded here so it is found rather than rediscovered.
 
 ## Why `clear()` stays silent
 
-It moves the index 4 → 0 and emits `update` + `collectionRebuild`, no `flip`.
-Three reasons it must stay that way:
+It moves the index 4 → 0 and emits **`pagesChanged`** (the 3.0 merge of
+upstream `update` + `collectionRebuild`), no `flip`. Three reasons it must stay
+that way:
 
 1. **"The index changed" is not well-defined there.** The collection's internal
    `currentPageIndex` is still 4, while `getCurrentPageIndex()` already reports
@@ -93,11 +95,9 @@ Three reasons it must stay that way:
    the collection never made.
 2. **`flip: 0` on an empty book names a page that does not exist** —
    `getPage(0)` throws `INVALID_PAGE`.
-3. **The existing L3 comment in `clear()` already reasons this out** — "`update`
-   because what is rendered changed, `collectionRebuild` because the collection
-   did, not `flip` (no turn happened)". That is the same principle this ADR
-   generalises. Adding `flip` to `clear` would contradict the change while
-   claiming to implement it.
+3. **Clearing is not a turn.** `pagesChanged` says the collection was replaced;
+   `flip` means the reader moved. Adding `flip` to `clear` would contradict this
+   ADR while claiming to implement it.
 
 ## Every path that can move the head — exhaustively
 
@@ -220,8 +220,8 @@ the section above argues against.
 
 - **No change is needed in `HTMLFlipBook.tsx` or `usePageFlip.ts`.** That is a
   finding, not an omission: both already re-derive index and count from the
-  engine on `collectionRebuild` rather than trusting the flip stream, which is
-  why they survive untouched.
+  engine on **`pagesChanged`** (the 3.0 name for upstream `collectionRebuild`)
+  rather than trusting the flip stream, which is why they survive untouched.
 
 ## Settled by the owner
 
@@ -245,8 +245,10 @@ lesson rather than a user error. Three things pointed at `onPageChange`:
 
 So the correct event was the second handler, with the more awkward payload,
 telling you something you appeared to already have. `usePageFlip` shows the same
-instinct from the inside: it never binds `onInit` at all, seeding from its
-`initialPage` argument and re-deriving on `collectionRebuild`.
+instinct from the inside: it never binds `onReady`/`onLoaded` only for
+initialization side-effects it already has from `initialPage`, and re-derives
+on **`pagesChanged`** (and turn events) rather than treating `onPageChange` as
+mount.
 
 That asymmetry is now the only thing making the right path harder than the wrong
 one, and it is worth revisiting — but as its own decision, not folded into this

@@ -16,15 +16,15 @@ consumer places the book on a rotated surface. Revisit when one does.
 
 ### `turnProgress` is not a complete scrubber
 
-| Situation                                       | `turnProgress`                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------------- |
-| `flippingTime: 0` / reduced-motion instant turn | **No events**                                                          |
-| Corner hover peel (`FOLD_CORNER`)               | **No events**                                                          |
-| Animated turn / drag                            | `progress ∈ [0, 1]`, no promise of a terminal `1.0`                    |
-| Snap-back cancel                                | Progress falls; **no** synthetic `0`                                   |
-| Turn completes                                  | Use `flip` / `changeState` / `changePage` — not a final `turnProgress` |
+| Situation                                       | `turnProgress`                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `flippingTime: 0` / reduced-motion instant turn | **No events**                                                                                          |
+| Corner hover peel (`FOLD_CORNER`)               | **No events**                                                                                          |
+| Animated turn / drag                            | `progress ∈ [0, 1]`, no promise of a terminal `1.0`                                                    |
+| Snap-back cancel                                | Progress falls; **no** synthetic `0`                                                                   |
+| Turn completes                                  | Use core `flip` / `changeState` (React: `onPageChange` / `onChangeState`) — not a final `turnProgress` |
 
-Wire scrubbers to **`turnProgress` + a completion event**.
+Wire scrubbers to **`turnProgress` + a completion event** (`flip` / `onPageChange`).
 
 ## Rendering / DOM ownership
 

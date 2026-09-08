@@ -17,7 +17,7 @@ works, the surface locks as-is regardless of internal untidiness.
 
 ## 1. The consumer jobs, and whether the surface serves them
 
-### Job 1 — "Render a book and make it look like mine" ✅ (docs missing)
+### Job 1 — "Render a book and make it look like mine" ✅
 
 The styling contract as built is genuinely good, and it is the part the review
 rounds have been most stale about:
@@ -60,8 +60,8 @@ inner element. Stable, documented selectors: `.stf__parent`,
 `[data-density]`, `--stf-paper`. Everything else in the stylesheet is
 unstable.
 
-**Missing: the README section that states this.** That is the single
-highest-value unshipped artifact in the repo (see §5).
+**Documented** in the root README **Styling** section (stable selectors, paper,
+inner-wrapper rule, controls attributes, spine overlay recipe).
 
 ### Job 2 — "Colors" ✅ after one structural fix
 
@@ -78,7 +78,8 @@ static: injection safety and "is this a color at all".
 
 ### Job 3 — "Draw my own chrome" ✅ after payload addition
 
-The event map is clean and locks: eight events, one snapshot shape.
+The event map is clean and locks: nine events (including additive
+`turnProgress`), one snapshot shape.
 `ready`/`loaded` distinguish first load from reload; `pagesChanged` replaced the
 always-fired-together pair; `turnRejected` carries `direction`, `targetPage`,
 `landedOn`, `code`. `flip` never fires for a repaint (ADR 0003).
@@ -135,7 +136,7 @@ shell is not a book you can turn (§4, C3).
 
 ### Job 5 — "Customize behavior" ✅ locks as-is
 
-All 23 settings lock with their current names, defaults, and validation. The
+All 25 settings lock with their current names, defaults, and validation. The
 renames were right (each old name stated something false), the strict
 validation is right (`'false'` is truthy), the authored-vs-resolved split is
 right, and `LiveSetting` rejecting `hardCovers`/`initialPage` updates at
@@ -153,16 +154,16 @@ the engine "don't try". One boolean completes the CSP story.
 `controls: 'auto' | 'visible' | 'none'` with the skip-link default,
 `controlLabels`, `roleDescription`, `liveRegion` + `liveRegionText`, keyboard
 turning, pinch-zoom preserved. This is a real accessibility story, better than
-anything upstream had. **`pageLabel` is deferred to 3.1**: `liveRegionText`
-already lets a consumer label front matter correctly today, so 3.1 can design
-the first-class API without blocking 3.0 (README recipe now).
+anything upstream had. **`pageLabel` remains open additive work** (see
+[TODO.md](./TODO.md)): `liveRegionText` already labels front matter correctly
+today (README recipe), so a first-class API is not a ship blocker.
 
-### Job 7 — SSR, deep links, migration ✅ API-complete, docs-empty
+### Job 7 — SSR, deep links, migration ✅
 
 Controlled `page` + `pageTransition: 'instant'` _is_ the deep-link API; no
 module-scope DOM access _is_ the SSR story; `usePageFlip` is the uncontrolled
-convenience. All three exist and none is documented. Docs work, not API work
-(§5).
+convenience. Documented in the root README (deep-link recipe, SSR/CSP/RTL) and
+[MIGRATION.md](../MIGRATION.md).
 
 ---
 
@@ -193,7 +194,7 @@ extension seam. Remaining internal hygiene (headless-controller seam) is in
 | Group           | Members                                                                                                                                                                                          | Verdict                                                                                                                                                                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Lifecycle       | `constructor`, `loadFromHTML`, `updateFromHtml`, `updateSettings`, `update`, `clear`, `destroy`, `isDestroyed`                                                                                   | **LOCK**                                                                                                                                                                                                                                                   |
-| Navigation      | the two triads (§1 Job 4)                                                                                                                                                                        | **LOCK** after `flip`→`flipToPage` rename (C2)                                                                                                                                                                                                             |
+| Navigation      | the two triads (§1 Job 4) + `cancelTurn()`                                                                                                                                                       | **LOCK** after `flip`→`flipToPage` rename (C2); `cancelTurn` additive                                                                                                                                                                                      |
 | Queries         | `getPageCount`, `getCurrentPageIndex`, `getVisiblePages`, `canTurn`, `getPageElement`, `isReady`, `isAnimating`, `getState`, `getOrientation`, `getBoundsRect`, `getSettings`, `getBlockElement` | **LOCK** under the totality rule (C1) with cloned returns (C6)                                                                                                                                                                                             |
 | Events          | `on`, `once`, `off`                                                                                                                                                                              | **LOCK** — typed map, snapshot dispatch, `once` cancellable by the original ref: platform-correct                                                                                                                                                          |
 | Synthetic input | `startUserTouch`, `userMove`, `userStop`                                                                                                                                                         | **LOCK as public, documented "advanced".** This is the only way to drive turns from a custom gesture system (a carousel integration, kiosk hardware, tests) — that is a _control_ capability consumers were promised, not a leak.                          |
@@ -228,24 +229,15 @@ extension seam. Remaining internal hygiene (headless-controller seam) is in
 
 ---
 
-## 4. The delta — what must change so the lock is true
+## 4. The delta — historical (all shipped)
 
-Ordered by consumer cost; each lands with a revert-proven test. **B-items are
-behavior bugs, C-items are contract conformance.**
+The pre-publish B/C items that made the lock true. **All are closed.** Kept as
+the record of what the lock required; do not re-open as open work.
 
-- **B1 — The turn verb completes on the instant path (P7, verified at HEAD).**
-  On a ready book with `canTurn('next') === true`, `flipNext()` returns `false`
-  with `turnRejected { reason: 'setup', code: 'COLLINEAR_SEGMENTS' }` — the
-  terminal fold pose produces collinear segments in `Helper.intersectLines`,
-  which throws a real `PageFlipError` that `FlipCalculation` (correctly) does
-  not swallow. An instant turn (`flippingTime: 0`, `respectReducedMotion`,
-  deep links) runs _only_ that terminal frame, so the exact path a11y depends
-  on is the one that always fails. Fix: the terminal/collinear pose is a
-  _completed fold_, not an error — resolve it as success (or a `GeometryAbort`
-  the completion path handles), never a rejection. Locked with it, the honesty
-  rule chrome depends on: **on a ready book, `canTurn(d)` true ⇒
-  `flipNext`/`flipPrev` succeeds.** Pin: `consumer-audit.test.ts` "BUG:
-  flipNext…" (passes today, asserting the failure — invert it).
+- **B1 — Instant path completes (P7). CLOSED.** Terminal/collinear fold pose is
+  a completed fold, not `COLLINEAR_SEGMENTS` rejection. On a ready book,
+  `canTurn(d)` true ⇒ `flipNext`/`flipPrev` succeeds. Pinned in
+  `consumer-audit.test.ts`.
 - **B2 — Hard back cover is shown alone (verified).** `createSpread()` singles
   out the last leaf when `isShowCover && length > 1`, mirroring leaf 0 — a
   5-leaf cover book becomes `[0], [1,2], [3], [4]`. `hardCovers` doc already
@@ -364,26 +356,21 @@ behavior bugs, C-items are contract conformance.**
   accordingly: absolute navigation throws on invalid input; relative
   navigation reports refusal by boolean + event.)
 
-## 5. The docs the contract obligates (release blockers, not API work)
+## 5. Docs the contract obligates — **shipped**
 
-README rewrite: quickstart whose obvious code is correct (counter via
-`onLoaded`, killing "Page 1 of 0"), the **Styling** section (§1 Job 1 contract
+Root README covers: quickstart with `onLoaded` counter, **Styling** (Job 1),
+common mistakes, deep-link recipe, SSR/CSP/RTL, `controls="visible"` +
+`hardCovers`, `liveRegionText`, turn-progress scrubber. [MIGRATION.md](../MIGRATION.md)
+covers every rename plus `flip`→`flipToPage`. Package READMEs on npm link back
+to the monorepo with absolute GitHub URLs.
 
-- stable selector table + "style an inner wrapper" rule), common-mistakes
-  (strict validation, `page` without `onPageChange` is a locked book), deep-link
-  recipe (controlled `page` + `'instant'`), SSR note, CSP note, RTL note,
-  `controls="visible"` + `hardCovers` example, front-matter labels via
-  `liveRegionText`. MIGRATION.md covers every rename plus `flip`→`flipToPage`.
+Still true:
 
-Also required of the docs surface:
-
-- **MIGRATION matches the live façade** — no deleted getters (`getUI`,
-  `getRender`); `public-surface.test.ts` allowlist is the source of truth.
-- **One portal sentence**: a React host portals into `getBlockElement()`,
-  always.
-- **Styling the built-in controls**: `controls="visible"` + stable
-  `data-flipbook-kb` / `data-flipbook-controls` attributes; the render-prop
-  seam is [TODO.md](./TODO.md), not this release.
+- **MIGRATION matches the live façade** — `public-surface.test.ts` allowlist is
+  the source of truth.
+- **Portal sentence**: a React host portals into `getBlockElement()`, always.
+- **Controls styling**: `controls="visible"` + stable `data-flipbook-*`
+  attributes; a render-prop seam is [TODO.md](./TODO.md), not this release.
 
 ## 6. Deferred (additive / internal)
 
@@ -403,32 +390,28 @@ were dispositioned against this contract. Ship-bar items closed; remaining
 additive work is in TODO; rejected items are in §3 and KNOWN-LIMITATIONS.
 The original review write-ups are gone from the tree (git history only).
 
-## 8. The acceptance consumer — story-book
+## 8. The acceptance consumer — picture-book reader
 
-`/Volumes/SSD/code/work/story-book` is the real product this fork serves: a
-picture-book reader (Next.js, desk spread / phone single-leaf, deep-linked
-`?spread=` URLs, its own chrome and gesture layer). Its migration branch
-(`story-book-flipbook-3`) already builds against an Aug-28 3.0 tarball —
-pre-design-tranche — and is moving from image-only leaves to **full HTML
-pages**. Its reader (`apps/web/components/reader/book-reader.tsx`) is the
-acceptance test for this contract: **3.0 ships when this component works on
-the released tarballs with no engine monkey-patching.**
+The primary downstream consumer is a Next.js picture-book reader (desk spread /
+phone single-leaf, deep-linked URLs, own chrome and gesture layer), migrating
+from image-only leaves to full HTML pages. **3.0 ships when that reader works
+on released tarballs with no engine monkey-patching.**
 
 What it needs, and where the contract covers it:
 
-| story-book need                                                           | Coverage                                                                                                                                                 |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Portrait BACK curl on phones without `installPortraitBackCurl`            | The flagship engine fix; migration branch already deleted the patch. Real-phone verification remains the release gate.                                   |
-| Reduced-motion / instant turns (`flippingTime`, `respectReducedMotion`)   | **Delta B1 (P7)** — currently the instant path fails; this consumer's a11y users hit it directly                                                         |
-| Instant jump during an 800 ms curl (spread dots, deep-link restore)       | **Delta B5** — `turnToPage` settles the in-flight turn; replaces the now-unreachable `getRender().finishAnimation()` workaround                          |
-| Own gesture layer on phones (engine pointers off, taps/swipes classified) | `pointerInput: []` — the capability `useMouseEvents: false` only delivered by accident                                                                   |
-| Center seam / `BookSpine` gutter overlay on the desk spread               | Root `className`/`style` preserved (locked), `startZIndex` + wrapper stacking stable; **§5 gains the spine-overlay recipe**; built-in gutter is TODO 3.1 |
-| Closed-cover half-page offset, cover-as-leaf-0                            | `hardCovers` + delta B2                                                                                                                                  |
-| Deep link + desk↔phone remount restore (`startPage`, `onInit`)            | `initialPage` + `ready`/`loaded` snapshots; leaf↔spread mapping stays app-side by design                                                                 |
-| `onFlip(e.data: number)` leaf index for URL sync                          | `onPageChange(snapshot)` — richer, one shape                                                                                                             |
-| Full-bleed `<img>` leaves migrating to full-HTML pages                    | The Job 1 styling contract + README section; leaf content is untouched by the engine                                                                     |
-| `WidgetEvent` type import from the React package                          | Kept (the §7 rejection is validated by this real import)                                                                                                 |
-| `pageBackground: '#f4efe6'` paper                                         | Passes; delta B3 makes the opacity guarantee structural                                                                                                  |
+| Reader need                                                               | Coverage                                                                                                                                                               |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Portrait BACK curl on phones without `installPortraitBackCurl`            | The flagship engine fix; migration already deleted the patch. Real-phone verification remains the release gate.                                                        |
+| Reduced-motion / instant turns (`flippingTime`, `respectReducedMotion`)   | **B1 closed** — instant path completes; `canTurn` ⇒ relative flip succeeds                                                                                             |
+| Instant jump during an 800 ms curl (spread dots, deep-link restore)       | **B5** — `turnToPage` settles the in-flight turn; replaces the old `getRender().finishAnimation()` workaround                                                          |
+| Own gesture layer on phones (engine pointers off, taps/swipes classified) | `pointerInput: []` — the capability `useMouseEvents: false` only delivered by accident                                                                                 |
+| Center seam / `BookSpine` gutter overlay on the desk spread               | Root `className`/`style` preserved (locked), `startZIndex` + wrapper stacking stable; **spine-overlay recipe shipped in root README Styling**; built-in gutter is TODO |
+| Closed-cover half-page offset, cover-as-leaf-0                            | `hardCovers` + delta B2                                                                                                                                                |
+| Deep link + desk↔phone remount restore (`startPage`, `onInit`)            | `initialPage` + `ready`/`loaded` snapshots; leaf↔spread mapping stays app-side by design                                                                               |
+| `onFlip(e.data: number)` leaf index for URL sync                          | `onPageChange(snapshot)` — richer, one shape                                                                                                                           |
+| Full-bleed `<img>` leaves migrating to full-HTML pages                    | The Job 1 styling contract + README section; leaf content is untouched by the engine                                                                                   |
+| `WidgetEvent` type import from the React package                          | Kept (the §7 rejection is validated by this real import)                                                                                                               |
+| `pageBackground: '#f4efe6'` paper                                         | Passes; delta B3 makes the opacity guarantee structural                                                                                                                |
 
 **Migration notes this consumer forces into MIGRATION.md:**
 
@@ -442,10 +425,9 @@ What it needs, and where the contract covers it:
   `showPageCorners`→`foldCornerOnHover`, `mobileScrollSupport`→`allowTouchScroll`,
   `clickEventForward`→`respectInteractiveContent`, `disableFlipByClick`→`flipOnClick`,
   `onFlip`→`onPageChange`, `onInit`→`onReady`/`onLoaded`.
-- §5 gains the **spine/gutter overlay recipe** (absolutely positioned overlay
-  above the book root at `left: 50%`, `pointer-events: none`, engine stacking
-  contained by a `position: relative; z-index` wrapper — story-book's
-  `BookSpine` is the reference implementation).
+- The **spine/gutter overlay recipe** is in the root README Styling section
+  (absolutely positioned overlay at `left: 50%`, `pointer-events: none`, engine
+  stacking contained by a `position: relative; z-index` wrapper).
 
 The release-plan dogfood step runs **this app** against the packed tarballs —
 a synthetic demo proves less than the consumer the fork exists for.
