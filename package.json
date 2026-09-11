@@ -60,7 +60,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsx-a11y": "^6.10.2",
@@ -76,9 +76,9 @@
     "semver": "^7.8.5",
     "terser": "^5.51.2",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.69.0",
-    "vitest": "^4.1.11",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.0",
     "yaml": "^2.9.0"
   },
   "pnpm": {
