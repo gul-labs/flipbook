@@ -14,7 +14,7 @@
     "@gullabs/flipbook-core": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }
 }
