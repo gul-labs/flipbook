@@ -243,6 +243,12 @@ export class Page {
       this.copiedElement.setAttribute('inert', '');
       this.copiedElement.setAttribute('data-stf-clone', '');
 
+      // Media state is not an attribute. A cloned <video>/<audio> is a second
+      // player. Replace video with a frozen canvas of the original's current
+      // frame; strip audio; snapshot a same-origin canvas. Never pause, seek,
+      // or reload the original.
+      freezeCloneMedia(this.element, this.copiedElement);
+
       parent.appendChild(this.copiedElement);
 
       const copy = new Page(this.render, this.copiedElement, this.nowDrawingDensity);
@@ -703,4 +709,50 @@ export class Page {
   public dispose(): void {
     this.hideTemporaryCopy();
   }
+}
+
+/**
+ * One pass over the clone, paired by document order with the original.
+ * Never writes `currentTime`, `pause`, or `load` on the original.
+ */
+function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): void {
+  const sources = original.querySelectorAll('video, audio');
+  const copies = clone.querySelectorAll('video, audio');
+  const count = Math.min(sources.length, copies.length);
+
+  for (let i = 0; i < count; i++) {
+    const source = sources[i];
+    const copy = copies[i];
+    if (source === undefined || copy === undefined) continue;
+
+    if (source instanceof HTMLVideoElement && copy instanceof HTMLVideoElement) {
+      replaceWithFrame(source, copy);
+    } else if (copy instanceof HTMLAudioElement) {
+      copy.remove();
+    }
+  }
+}
+
+function replaceWithFrame(source: HTMLVideoElement, copy: HTMLVideoElement): void {
+  const box = document.createElement('canvas');
+  box.setAttribute('data-stf-frame', '');
+  const width = source.videoWidth || source.width;
+  const height = source.videoHeight || source.height;
+  if (width > 0) box.width = width;
+  if (height > 0) box.height = height;
+
+  const ready = source.readyState >= 2 && source.videoWidth > 0;
+  const ctx = ready ? box.getContext('2d') : null;
+  if (ctx !== null) {
+    try {
+      ctx.drawImage(source, 0, 0, box.width, box.height);
+    } catch {
+      // Tainted. The blank box still cannot request the file.
+    }
+  }
+  const poster = source.getAttribute('poster');
+  // Record the URL. Fetching it would be the second request this copy must not make.
+  if (poster !== null && poster !== '' && ctx === null) box.setAttribute('data-stf-poster', poster);
+
+  copy.replaceWith(box);
 }

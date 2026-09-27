@@ -4,6 +4,38 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — portrait fold copy and live-face order
+
+- **Media in the portrait clone.** A soft portrait turn replaces each cloned
+  `<video>` with a canvas of the original's current frame and removes cloned
+  `<audio>`. The copy does not issue a second media request, start a second
+  decoder, or play audio. A cloned `<canvas>` is unsupported (pixels are not
+  copied). The original element is not paused, seeked, or reloaded. Landscape
+  still folds the live leaf. A hard page still does not clone.
+- **Interactive replaced elements.** With `respectInteractiveContent`, a pointer
+  that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or
+  `object` does not start a fold. A `<video>` without controls still swipes.
+- **Clone lifetime vs `changeState`.** `user_fold` / `flipping` are emitted
+  before the portrait clone is inserted. `read` is emitted after the clone is
+  removed, including `cancelTurn()`.
+- **Selection.** The injected block rule keeps `-webkit-touch-callout: none`
+  alongside `user-select: none`, on page faces and on the clone.
+
+### Docs — React-only settings, scrubber, live faces
+
+- README and package READMEs state which props exist only on `HTMLFlipBook`
+  (`lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, controlled `page` /
+  `pageTransition`). Unknown keys passed to `PageFlip` are ignored. A vanilla
+  host windows its own DOM.
+- Scrubber contract: `turnProgress` is silent on instant and reduced-motion
+  turns and on hover peel; settle with `flip` / `changeState`. React page
+  children must keep a stable identity across `onTurnProgress`.
+- Live-face contract documents the attribute-toggle highlight pattern, the
+  two-element lookup, and that `Range` / Highlight API do not cover the clone.
+  A host-owned media recipe (play from `visiblePages`, poster under reduced
+  motion, WCAG pause is the host's) sits next to the known limitations.
+  `respectReducedMotion` does not cover page content.
+
 ### Fixed — mobile branch adversarial audit
 
 - **Rotation during a turn:** wrapper geometry and the spread cursor now agree
@@ -31,7 +63,7 @@ All notable changes to this monorepo will be documented in this file.
 - **`updateSettings`.** Stamp host + Render bounds, abandon the original fold, remirror (`pages.show` unless a nested turn is live), then rebind pointers. `{ pointerInput, width }` no longer abandons against the old box. Direction-only no longer remirrors while the curl is still installed. `maxHeight` is in the fold-invalidating set (omissions are a type error). Engine-initiated `releasePointerCapture` is not treated as an OS steal, so a nested `flipNext` from the first READ is not killed.
 - **Pointer capture.** `lostpointercapture` that is not our own release abandons the fold (iOS pan steal). `pointerup` still commits. Touch move listeners are `{passive:false}`. `allowTouchScroll: false` sets `--lock-touch-scroll` (`touch-action: pinch-zoom`); pan is CSS, `preventDefault` only once a fold is live so pinch-zoom stays. Destroy restores the lock class.
 - **React destroy-without-unmount.** `FlipBookHandle.destroy()` retires the shell (portal dropped, Next/Prev `aria-disabled`, further turns `code: 'DESTROYED'`). Unmount reports `NOT_LOADED` on a captured handle. `pageFlip()?.destroy()` tears the engine down; the shell retires on the next render. No `flushSync`, no wrapping of `PageFlip.destroy`. `pagesChanged` with `pageCount: 0` notifies `usePageFlip`.
-- **Size.** The original size report was inaccurate; see the clean-build measurements and owner-approved limits in the audit entry above.
+- **Size.** The portrait media snapshot measures **67,058 B raw / 16,339 B brotli / 18,493 B gzip** against the previous 66 / 16.1 / 18.2 kB ceilings. Ceilings are now **68 / 16.5 / 18.6 kB**. The growth is the snapshot plus announcing `changeState` before the clone exists.
 
 ### Tests — fixture honesty
 

@@ -12,6 +12,10 @@ import { FlipDirection } from '../Flip/enums';
  * animates (the slide-in). We animate a temporary copy of the *current* leaf
  * instead. Hard pages return themselves from newTemporaryCopy; those stay on
  * the vendor previous-leaf path so the mover is not also the bottom page.
+ *
+ * Calling this inserts the portrait clone. `Flip.start` therefore does not
+ * call it: `changeState` (`user_fold` / `flipping`) is announced first, and
+ * `Flip.installFlippingPages` calls `getFlippingPage` only after that event.
  */
 export function getPortraitFlippingPage<T extends { newTemporaryCopy(): T }>(
   pages: T[],

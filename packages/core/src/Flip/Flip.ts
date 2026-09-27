@@ -140,6 +140,8 @@ export class Flip {
     const generation = this.turnGeneration;
 
     this.setState(FlippingState.USER_FOLD);
+    if (this.turnGeneration !== generation) return;
+    this.installFlippingPages();
 
     // AN5, confirmed against the built engine. `setState` dispatches
     // synchronously, and a `changeState('user_fold')` listener that starts a
@@ -256,6 +258,7 @@ export class Flip {
       this.refusal = 'superseded';
       return false;
     }
+    this.installFlippingPages();
 
     const corner = calc.getCorner() === FlipCorner.BOTTOM ? 'bottom' : 'top';
     // SAME local curl for forward and back. BACK looks right on screen
@@ -352,12 +355,22 @@ export class Flip {
     // defect and must surface. Upstream swallowed both, so a broken book just
     // refused to turn with nothing in the console — the silent-failure class
     // §4.6 exists to remove.
-    this.flippingPage = this.app[GET_COLLECTION]().getFlippingPage(direction);
+    //
+    // Resolve the destination leaf so a missing spread still refuses the turn,
+    // but do not insert the portrait clone. `getFlippingPage` in portrait calls
+    // `newTemporaryCopy()`, and `changeState` (`user_fold` / `flipping`) is
+    // dispatched only after `start()` returns. A host that freezes live text
+    // from that event must see the original with no clone in the tree.
+    // `installFlippingPages` takes the copy once, after the announcement.
+    //
+    // Landscape density still needs the real neighbour pair now: that path
+    // never clones, so resolving it here does not insert a node.
     this.bottomPage = this.app[GET_COLLECTION]().getBottomPage(direction);
-
-    // In landscape, the neighbouring page must take the flipped page's density.
     if (this.render.getOrientation() === Orientation.LANDSCAPE) {
+      this.flippingPage = this.app[GET_COLLECTION]().getFlippingPage(direction);
       this.applyLandscapeDensity(direction, this.flippingPage);
+    } else {
+      this.flippingPage = null;
     }
 
     // `direction` is semantic from here down to `setDirection`, which is the
@@ -379,6 +392,19 @@ export class Flip {
     this.turnGeneration += 1;
 
     return true;
+  }
+
+  /**
+   * Insert the portrait fold copy once, after `changeState` has been announced.
+   *
+   * Landscape already resolved the live leaf in `start()` (no clone). A second
+   * call is a no-op: `newTemporaryCopy` returns the copy it already built, and
+   * a drag that becomes a programmed turn must not clone again.
+   */
+  private installFlippingPages(): void {
+    if (this.flippingPage !== null) return;
+    if (this.calc === null) return;
+    this.flippingPage = this.app[GET_COLLECTION]().getFlippingPage(this.turnDirection);
   }
 
   /**
@@ -709,6 +735,8 @@ export class Flip {
         const generation = this.turnGeneration;
 
         this.setState(FlippingState.FOLD_CORNER);
+        if (this.turnGeneration !== generation) return;
+        this.installFlippingPages();
 
         // The same window, and the most destructive of the three: everything
         // below seeds a calculation and starts an animation, and
@@ -894,6 +922,11 @@ export class Flip {
         // (Render.ts:716); this agent's file scope excludes that file, so the
         // asymmetry is left visible rather than papered over with a cast.
         this.render.setBottomPage(null);
+        // Drop the portrait copy before READ. Clearing the slot alone leaves
+        // the node in the tree until the next frame's delta clear, so a
+        // `changeState('read')` listener still saw the clone.
+        const mover = this.flippingPage;
+        mover?.getCopyOwner()?.hideTemporaryCopy();
         this.render.setFlippingPage(null);
         this.render.clearShadow();
 

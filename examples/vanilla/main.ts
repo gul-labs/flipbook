@@ -17,6 +17,7 @@ const swipeDistanceParam = params.get('swipeDistance');
 const swipeDistance =
   swipeDistanceParam !== null && swipeDistanceParam !== '' ? Number(swipeDistanceParam) : undefined;
 
+// `lazyRadius` will not help: it is React-only. This host mounts every `.page`.
 const book = new PageFlip(root, {
   width: 400,
   height: 300,

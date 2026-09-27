@@ -101,8 +101,8 @@ Measured from the published artifacts, both terser-minified, zero runtime depend
 
 Larger than upstream because of RTL, reduced motion, typed errors, validation,
 and the portrait back-curl fix. This is not a smaller drop-in replacement; it is
-a maintained one. CI ceilings on the packed HTML engine are **66 kB raw /
-16.1 kB brotli / 18.2 kB gzip** (see [`docs/QUALITY.md`](./docs/QUALITY.md)).
+a maintained one. CI ceilings on the packed HTML engine are **68 kB raw /
+16.5 kB brotli / 18.6 kB gzip** (see [`docs/QUALITY.md`](./docs/QUALITY.md)).
 
 Reproduce with `npm pack page-flip@2.0.7` and `pnpm build && pnpm size`.
 
@@ -134,6 +134,9 @@ import { PageFlip } from '@gullabs/flipbook-core';
 const pageFlip = new PageFlip(root, { width: 400, height: 600 });
 pageFlip.loadFromHTML(pages);
 // Pictures: <img alt="…"> inside the HTML page elements.
+// `lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, and controlled
+// `page` / `pageTransition` are React-only. Passing them here does nothing.
+// Window the DOM yourself if a long book must not mount every leaf.
 ```
 
 **React**
@@ -183,6 +186,20 @@ export function Book() {
 | Vite + React       | `examples/vite-react/`    | Picture book, RTL chrome, controlled `page`           |
 | Next.js App Router | `examples/nextjs/`        | SSR placeholder → hydrate, real curl                  |
 | Mobile reader      | `examples/mobile-reader/` | Live HTML text, token highlight, resize-while-turning |
+
+`PageFlip` takes [`FlipOptions`](./packages/core/src/Settings.ts) only. Keys it
+does not declare are ignored. The React binding adds props that never reach
+the engine:
+
+| React-only (`HTMLFlipBook`)                                             | Core `PageFlip`                                             |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `lazyRadius` — unmount leaves outside the window                        | No window. Mount only the nodes you pass to `loadFromHTML`. |
+| `controls`, `liveRegion`, `liveRegionText`, `useKeyboard`, `aria-label` | Wire your own buttons, status text, and keys.               |
+| controlled `page` + `pageTransition`                                    | Call `flipToPage` / `turnToPage` yourself.                  |
+
+A vanilla or WebView host that copies `lazyRadius: 2` into `new PageFlip` still
+mounts every leaf. Window the DOM in the host. React docs below still describe
+`lazyRadius` for `HTMLFlipBook`.
 
 ---
 
@@ -303,9 +320,19 @@ liveRegionText={(page, pageCount) =>
 **Turn progress / scrubber thumb.** Subscribe to `turnProgress` (React:
 `onTurnProgress`) instead of rAF-polling `getState()`. Progress is geometric
 completion in `[0, 1]`; `direction` is semantic page-index order (`'next'`
-still means higher indices under RTL). Instant turns and hover peels emit
-nothing — treat `flip` / `changeState` as completion, never the last progress
-tick.
+still means higher indices under RTL).
+
+`flippingTime: 0` and a reduced-motion instant turn emit **no** `turnProgress`.
+A hover peel (`fold_corner`) is silent. There is no guaranteed terminal `1.0`,
+and a snap-back does not synthesise `0`. Settle the scrubber on `flip` /
+`changeState` (React: `onPageChange` / `onChangeState`). That silence is the
+contract — see [docs/KNOWN-LIMITATIONS.md](./docs/KNOWN-LIMITATIONS.md).
+
+**Stable page children.** `onTurnProgress` re-renders the parent. If that
+render builds a new element for each page, the binding treats the nodes as
+changed and rebuilds the book mid-curl. Memoize the page elements and keep
+per-frame chrome in a sibling, so the children `HTMLFlipBook` receives keep
+the same identity across progress ticks.
 
 ```ts
 // Core

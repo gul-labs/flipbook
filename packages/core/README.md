@@ -27,15 +27,16 @@ pageFlip.loadFromHTML(pages);
 
 ## Essentials
 
-| Topic        | Rule                                                                                                                                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Paper color  | `pageBackground` (default `#fff`) → `--stf-paper`. Opacity is structural.                                                           |
-| Leaf styling | Style an **inner** wrapper; the engine owns layout + paper on the leaf root.                                                        |
-| Stylesheet   | Default injects CSS. CSP: `injectStyles: false` + ship `style.css` / `FLIPBOOK_CSS`.                                                |
-| Navigation   | `flipToPage` / `flipNext` / `flipPrev` animate; `turnTo*` are instant. Relative turns return `boolean` and may emit `turnRejected`. |
-| Progress     | `turnProgress` while a fold moves; completion is `flip` / `changeState`, not a final progress tick.                                 |
-| Cancel       | `cancelTurn()` aborts an in-flight turn without committing.                                                                         |
-| Queries      | `getVisiblePages()`, `canTurn(dir)`, `getPageCount()`, `getCurrentPageIndex()`, `isReady()`, `isAnimating()`.                       |
+| Topic        | Rule                                                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Paper color  | `pageBackground` (default `#fff`) → `--stf-paper`. Opacity is structural.                                                                                             |
+| Leaf styling | Style an **inner** wrapper; the engine owns layout + paper on the leaf root.                                                                                          |
+| Stylesheet   | Default injects CSS. CSP: `injectStyles: false` + ship `style.css` / `FLIPBOOK_CSS`.                                                                                  |
+| Navigation   | `flipToPage` / `flipNext` / `flipPrev` animate; `turnTo*` are instant. Relative turns return `boolean` and may emit `turnRejected`.                                   |
+| Progress     | `turnProgress` while a fold moves. Silent on `flippingTime: 0`, reduced motion, and hover peel. No terminal `1.0`. Settle with `flip` / `changeState`.                |
+| React-only   | `lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, controlled `page` / `pageTransition` are not `FlipOptions`. Unknown keys are ignored. Window the DOM yourself. |
+| Cancel       | `cancelTurn()` aborts an in-flight turn without committing.                                                                                                           |
+| Queries      | `getVisiblePages()`, `canTurn(dir)`, `getPageCount()`, `getCurrentPageIndex()`, `isReady()`, `isAnimating()`.                                                         |
 
 ## Error codes
 

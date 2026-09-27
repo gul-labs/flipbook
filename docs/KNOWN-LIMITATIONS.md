@@ -24,7 +24,9 @@ consumer places the book on a rotated surface. Revisit when one does.
 | Snap-back cancel                                | Progress falls; **no** synthetic `0`                                                                   |
 | Turn completes                                  | Use core `flip` / `changeState` (React: `onPageChange` / `onChangeState`) — not a final `turnProgress` |
 
-Wire scrubbers to **`turnProgress` + a completion event** (`flip` / `onPageChange`).
+Wire scrubbers to **`turnProgress` + a completion event** (`flip` / `changeState`;
+React: `onPageChange` / `onChangeState`). A reader who expects a progress tick
+on `flippingTime: 0` is reading the contract wrong.
 
 ## Rendering / DOM ownership
 
@@ -66,9 +68,20 @@ them. Adding them is a locked-surface amendment — see TODO.
 ### Clone is a snapshot
 
 During a curl the fold face is a `cloneNode(true)` snapshot. Later mutations to
-the original do not propagate. Highlight via a **document stylesheet** on stable
-token ids, not per-word React re-renders that swap page nodes. Full contract:
-[LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
+the original do not propagate. Highlight via a **document stylesheet** or an
+**attribute toggle** on stable token ids, not per-word React re-renders that
+swap page nodes. `Range` and the Highlight API do not cover the clone. A
+cloned `<video>` is replaced with a frozen canvas; `<audio>` is stripped. Full
+contract: [LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
+
+### Playback is the host's job
+
+Play a media element when its leaf is in `getVisiblePages()`, pause it
+otherwise, and show a poster under `prefers-reduced-motion`. `respectReducedMotion`
+makes the **turn** instant. It does not pause, mute, or replace page content.
+WCAG 2.2.2 pause/stop/hide for autoplaying media is the host's control; the
+clone is already `inert`. Core does not call `play`, `pause`, or `load` on
+media the host created.
 
 ## Deliberately rejected
 

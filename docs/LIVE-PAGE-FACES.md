@@ -17,7 +17,26 @@ copy** (`Page.newTemporaryCopy` → `cloneNode(true)`).
 | Later mutations   | Apply to the original                                                            | **Do not** propagate                                               |
 | `#id` lookups     | First match in tree order — the original, because the clone is appended after it | Duplicate ids are left in place so `#id` CSS still paints the fold |
 
-Hard pages return `this` from `newTemporaryCopy()` and do not clone.
+Hard pages return `this` from `newTemporaryCopy()` and do not clone. Landscape
+spread turns fold the live leaf; only portrait soft leaves are copied.
+
+### Media in the copy
+
+A cloned `<video>` would be a second player (a second request, a second
+decoder, and its own audio). The engine replaces each cloned `<video>` with a
+`<canvas data-stf-frame>` painted from the original's current frame via
+`drawImage`. If the original has no frame yet, the canvas is a blank box of
+the same size and records `data-stf-poster` when a poster URL was set — it
+does not fetch that URL. `<audio>` is removed from the clone. A cloned
+`<canvas>` is **unsupported**: `cloneNode` does not copy pixels, and a
+snapshot is not taken (a tainted canvas cannot be painted anyway). The
+original element is not paused, seeked, or reloaded.
+
+The frame is frozen at clone time. The original keeps playing underneath.
+Landscape does not clone, so a spread turn keeps the live element.
+
+Marking a video leaf `data-density="hard"` avoids the copy entirely and loses
+the soft curl. That is a host fallback, not the supported path.
 
 ## Supported: token-id stylesheet highlighting
 
@@ -35,11 +54,51 @@ Generate the selector with `CSS.escape`. Because the clone copied the
 attribute, the same rule paints original and fold faces without a React update
 per word and without an engine synchronization API.
 
-Range-based highlighting is **not** that. A `Range` attached to the original
-DOM does not cover the clone. Create a range (or equivalent) per visual
-representation. Any span fallback must preserve shaping, whitespace, line
-breaking and reading order — especially for Arabic. The English fixture is not
-proof that every script works.
+### Attribute toggle (same contract, cheaper invalidation)
+
+Rewriting a rule keyed on `[data-token-id]` makes every token on every mounted
+page a style-recalc candidate. For a book that mounts dozens of leaves, toggle
+an attribute on the matches instead and keep one static rule:
+
+```css
+[data-token-id][data-reading] {
+  background-color: var(--wash);
+}
+[data-flipping] [data-token-id] {
+  transition: none;
+}
+```
+
+```js
+for (const el of container.querySelectorAll(`[data-token-id="${CSS.escape(id)}"]`)) {
+  el.toggleAttribute('data-reading', el.dataset.tokenId === id);
+}
+```
+
+The lookup returns **two** elements while a portrait curl is up: the original
+and the clone (`data-stf-clone`), because the clone is in the same container.
+After `read` — including `cancelTurn()` — the count is one. The engine does
+not rewrite attributes on clone descendants, so a toggle set after the copy
+survives until the clone is removed.
+
+`changeState` emits `user_fold` or `flipping` **before** the clone is inserted,
+and `read` **after** it is removed. A host that sets `data-flipping` from that
+event therefore turns transitions off before the fold face exists.
+
+The trade-off: the stylesheet pattern needs no per-cue DOM writes and paints a
+clone taken mid-cue automatically. The attribute pattern writes one attribute
+per match per cue, including the clone if the cue changes mid-turn, and does
+not restyle tokens the clock never touches.
+
+### Range and Highlight API
+
+A DOM `Range`, and the CSS Custom Highlight API (`Highlight` / `::highlight`),
+are attached to the original tree. They do not cover the clone. Create a range
+or a highlight per visual representation, or use one of the two patterns above.
+
+Any span fallback must preserve shaping, whitespace, line breaking and reading
+order — especially for Arabic. The English fixture is not proof that every
+script works.
 
 ## Unsupported
 

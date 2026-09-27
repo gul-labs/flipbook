@@ -54,20 +54,25 @@ export function Book() {
    your prop snaps it back (a locked book).
 4. **Do not drive `initialPage` from live URL state** — it is a remount key.
    Freeze the deep link at mount, or use controlled `page`.
+5. **Keep page-child identity stable across `onTurnProgress`.** Memoize the
+   page elements. A parent that rebuilds them on every progress tick tears the
+   book down mid-curl. Put the scrubber thumb in a sibling, not in the page
+   children.
 
 ## Common props and events
 
-| Prop / event            | Role                                                                        |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `width` / `height`      | Required page size                                                          |
-| `page` + `onPageChange` | Controlled page (optional `pageTransition`: `'animate'` \| `'instant'`)     |
-| `onLoaded` / `onReady`  | Initial / once-per-engine snapshot (`page`, `pageCount`, `visiblePages`, …) |
-| `onTurnProgress`        | Fold progress `0…1` while animating or dragging (silent on instant turns)   |
-| `onTurnRejected`        | Turn did not start (`reason`, `direction`, `targetPage`, `landedOn`)        |
-| `controls`              | `'auto'` \| `'visible'` \| `'none'`                                         |
-| `hardCovers`            | Cover leaves shown alone, hard density                                      |
-| `pageBackground`        | Paper color (any CSS color; opacity is structural)                          |
-| `injectStyles`          | Default `true`; set `false` under strict CSP and import core `style.css`    |
+| Prop / event            | Role                                                                                                                                                       |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `width` / `height`      | Required page size                                                                                                                                         |
+| `page` + `onPageChange` | Controlled page (optional `pageTransition`: `'animate'` \| `'instant'`)                                                                                    |
+| `onLoaded` / `onReady`  | Initial / once-per-engine snapshot (`page`, `pageCount`, `visiblePages`, …)                                                                                |
+| `onTurnProgress`        | Fold progress `0…1` while animating or dragging. Silent on instant / reduced-motion turns and on hover peel. Settle with `onPageChange` / `onChangeState`. |
+| `lazyRadius`            | React-only window. Core `PageFlip` ignores it; a vanilla host must window the DOM itself.                                                                  |
+| `onTurnRejected`        | Turn did not start (`reason`, `direction`, `targetPage`, `landedOn`)                                                                                       |
+| `controls`              | `'auto'` \| `'visible'` \| `'none'`                                                                                                                        |
+| `hardCovers`            | Cover leaves shown alone, hard density                                                                                                                     |
+| `pageBackground`        | Paper color (any CSS color; opacity is structural)                                                                                                         |
+| `injectStyles`          | Default `true`; set `false` under strict CSP and import core `style.css`                                                                                   |
 
 Handle methods (`ref` → `FlipBookHandle`):
 
