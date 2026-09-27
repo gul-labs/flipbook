@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../packages/core/dist/style.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #ece7dc;
+      }
+      #host {
+        width: calc(100vw - 40px);
+        height: 600px;
+        padding: 20px;
+      }
+      #book {
+        width: 100%;
+        height: 100%;
+      }
+      .page {
+        box-sizing: border-box;
+        background: #fffaf0;
+      }
+      .txt {
+        padding: 24px;
+        font:
+          20px Georgia,
+          serif;
+      }
+      video,
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host">
+      <div id="book">
+        <div class="page" data-density="hard"><div class="txt">Cover</div></div>
+        <div class="page"><div class="txt">Page 1 — plain text</div></div>
+        <div class="page" id="p-loop">
+          <video id="v-loop" src="./silent.mp4" autoplay muted loop playsinline></video>
+        </div>
+        <div class="page" id="p-controls">
+          <video id="v-controls" src="./clip.mp4" controls playsinline muted></video>
+        </div>
+        <div class="page"><div class="txt">Page 4 — plain text</div></div>
+        <div class="page" data-density="hard"><div class="txt">Back</div></div>
+      </div>
+    </div>
+    <script type="module">
+      import { PageFlip } from '../../../packages/core/dist/index.js';
+      const params = new URLSearchParams(location.search);
+      const book = new PageFlip(document.getElementById('book'), {
+        width: 400,
+        height: 520,
+        sizing: 'fixed',
+        usePortrait: params.get('portrait') === '1',
+        hardCovers: true,
+        flippingTime: Number(params.get('t') ?? 2000),
+        injectStyles: false,
+        flipOnClick: 'never',
+        foldCornerOnHover: false,
+        respectInteractiveContent: true,
+        pointerInput: ['mouse', 'touch'],
+        respectReducedMotion: false,
+      });
+      book.loadFromHTML(document.querySelectorAll('.page'));
+      window.flipbook = book;
+      document.body.dataset.ready = '1';
+    </script>
+  </body>
+</html>
