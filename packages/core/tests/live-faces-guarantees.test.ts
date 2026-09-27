@@ -299,13 +299,13 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     // jsdom has no canvas. The platform context is what drawImage runs on;
     // the assertion is that the shipped clone asks that context to paint the
     // original video, not a second media element.
-    HTMLCanvasElement.prototype.getContext = function (type: string) {
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string) {
       if (type !== '2d') return original.call(this, type);
       return {
         drawImage(source: CanvasImageSource) {
           drawn.push(source);
         },
-      } as CanvasRenderingContext2D;
+      } as unknown as CanvasRenderingContext2D;
     } as typeof HTMLCanvasElement.prototype.getContext;
 
     const page = testPage(app, 0) as Page;
