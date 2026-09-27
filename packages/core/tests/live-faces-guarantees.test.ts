@@ -249,9 +249,22 @@ describe('G6 — changeState brackets the clone', () => {
       seenDuringRead.push(app.getBlockElement().querySelectorAll('[data-stf-clone]').length);
     });
 
-    dragToFold(app);
-    expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
-    app.cancelTurn();
+    // A synchronous rAF runs the frame `cancelAnimation` queues before
+    // `abandon` emits read. Installing it before the drag lets that frame
+    // actually schedule: a frame already pending makes `scheduleFrame` no-op,
+    // and the assertion would stay green while the fold face was swept.
+    const realRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (cb) => {
+      cb(0);
+      return 1;
+    };
+    try {
+      dragToFold(app);
+      expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
+      app.cancelTurn();
+    } finally {
+      globalThis.requestAnimationFrame = realRaf;
+    }
 
     expect(order[0]).toBe('user_fold:0');
     // While the read listener runs the fold face is still there. Once
