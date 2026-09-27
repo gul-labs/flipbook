@@ -77,9 +77,11 @@ for (const el of container.querySelectorAll(`[data-token-id="${CSS.escape(id)}"]
 
 The lookup returns **two** elements while a portrait curl is up: the original
 and the clone (`data-stf-clone`), because the clone is in the same container.
-After `read` — including `cancelTurn()` — the count is one. The engine does
-not rewrite attributes on clone descendants, so a toggle set after the copy
-survives until the clone is removed.
+After a completed turn's `read` listener returns, the count is one. A
+`cancelTurn()` `read` listener still sees two: the clone is removed when that
+listener returns, and the count is one only after `cancelTurn()` itself
+returns. The engine does not rewrite attributes on clone descendants, so a
+toggle set after the copy survives until the clone is removed.
 
 `changeState` emits `user_fold` or `flipping` **before** the clone is inserted.
 A completed turn emits `read` **after** the clone is removed. A cancelled turn
