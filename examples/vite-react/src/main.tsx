@@ -114,9 +114,9 @@ function InteractiveBook() {
       <h2 style={{ margin: '0 0 8px' }}>Your own chrome — RTL, hotspot, lock</h2>
       <p style={{ margin: '0 0 12px', color: '#555', maxWidth: 520 }}>
         <code>usePageFlip</code> is uncontrolled — never pass <code>page={'{book.page}'}</code>. A{' '}
-        <code>&lt;button&gt;</code> on the leaf does not start a fold; a native{' '}
-        <code>&lt;video controls&gt;</code> still would (selector gap). Lock is three live knobs,
-        not a freeze of <code>page</code>.
+        <code>&lt;button&gt;</code> on the leaf does not start a fold, and neither does a{' '}
+        <code>&lt;video controls&gt;</code>. A video without controls still swipes. Lock is three
+        live knobs, not a freeze of <code>page</code>.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <button type="button" onClick={() => book.flipPrev()} disabled={turning || !book.canGoPrev}>

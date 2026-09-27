@@ -251,6 +251,23 @@ describe('G6 — changeState brackets the clone', () => {
     expect(order[0]).toBe('user_fold:0');
     expect(order[order.length - 1]).toBe('read:0');
   });
+
+  test('flipNext announces flipping before the clone exists', () => {
+    const { book: app, pages } = book({
+      pageCount: 4,
+      flippingTime: 800,
+      foldCornerOnHover: false,
+    });
+    pages[0]!.innerHTML = '<span data-token-id="x">line</span>';
+    app.updateFromHtml(pages);
+    const order = watch(app);
+
+    expect(app.flipNext()).toBe(true);
+    expect(order[0]).toBe('flipping:0');
+    expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
+    app.cancelTurn();
+    expect(order[order.length - 1]).toBe('read:0');
+  });
 });
 
 describe('video fold copy — no second player, no audio from the copy', () => {
