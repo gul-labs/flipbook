@@ -926,7 +926,9 @@ export class Flip {
         // the node in the tree until the next frame's delta clear, so a
         // `changeState('read')` listener still saw the clone.
         const mover = this.flippingPage;
-        mover?.getCopyOwner()?.hideTemporaryCopy();
+        if (mover !== null && typeof mover.getCopyOwner === 'function') {
+          mover.getCopyOwner()?.hideTemporaryCopy();
+        }
         this.render.setFlippingPage(null);
         this.render.clearShadow();
 
