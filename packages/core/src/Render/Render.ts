@@ -1035,7 +1035,7 @@ export class Render {
     return this.animation !== null;
   }
 
-  public cancelAnimation(): void {
+  public cancelAnimation(keepClone = false): void {
     // R8: abandoning a turn drops the fold, so the spread underneath has to be
     // repainted without it — `UI.cancelGesture` and `PageFlip.replacePages`
     // both rely on that repaint happening.
@@ -1063,7 +1063,11 @@ export class Render {
     // `lastShown` (cancelled before its first frame) is still cleaned. The
     // sweep never asks the live collection — required because `PageFlip.clear()`
     // destroys the collection before `releasePages` → here.
-    this.sweepShownSet();
+    //
+    // A user cancel keeps the portrait copy until `changeState('read')` returns.
+    // The host clears live-text state on that fold face; sweeping first makes
+    // the face gone. `PageFlip.abandonInFlightTurn` hides it after `abandon()`.
+    if (!keepClone) this.sweepShownSet();
 
     this.flippingPage = null;
     this.bottomPage = null;
@@ -1074,6 +1078,16 @@ export class Render {
     // NEXT fold. Every other piece of per-turn state is dropped here; this one
     // was simply missed.
     this.pageRect = null;
+  }
+
+  /**
+   * Drop a portrait copy that `cancelAnimation(true)` left for the READ
+   * listener. Idempotent. Not a per-frame path.
+   */
+  public sweepRetainedCopy(): void {
+    this.sweepShownSet();
+    this.flippingPage = null;
+    this.bottomPage = null;
   }
 
   /**

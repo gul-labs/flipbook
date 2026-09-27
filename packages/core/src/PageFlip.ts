@@ -141,6 +141,13 @@ function resolveStartPage(pages: PageCollection, pageCount: number, requested: n
 export class PageFlip extends EventObject {
   private mousePosition: Point = { x: 0, y: 0 };
   private isUserTouch = false;
+
+  /**
+   * A user cancel leaves the portrait copy in the tree until `changeState`
+   * (`read`) returns. Cleared by that emission, or immediately if `abandon`
+   * did not emit READ.
+   */
+  private retainCopyUntilRead = false;
   private isUserMove = false;
 
   private readonly setting: FlipSetting;
@@ -1438,6 +1445,12 @@ export class PageFlip extends EventObject {
    */
   public [EMIT_STATE](newState: FlippingState): void {
     this.dispatch('changeState', { state: newState });
+    // Hide the retained portrait copy only after every read listener has
+    // returned. Sweeping inside the dispatch would make `read` see 0 clones.
+    if (newState === FlippingState.READ && this.retainCopyUntilRead) {
+      this.retainCopyUntilRead = false;
+      this.render?.sweepRetainedCopy();
+    }
   }
 
   /**
@@ -1526,11 +1539,17 @@ export class PageFlip extends EventObject {
 
     if (!hadWork) return false;
 
-    this.render.cancelAnimation();
+    // Keep the portrait copy until READ's listeners return. A host that paints
+    // the fold face from `changeState` has to see it on a cancelled turn.
+    // Collection replacement still sweeps immediately: that path calls
+    // `cancelAnimation()` itself before the pages are destroyed.
+    this.render.cancelAnimation(true);
     // Drop the old pointer BEFORE abandon. `abandon()` emits READ; a listener
     // may start a new pointerdown. Resetting afterwards wiped that gesture
     // (`activePointerId` went null) so the next move never entered USER_FOLD.
     this.resetUserGesture();
+    this.retainCopyUntilRead = true;
+    // abandon emits READ, which sweeps the copy after the listeners return.
     this.flipController.abandon();
     return true;
   }

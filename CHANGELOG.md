@@ -16,8 +16,10 @@ All notable changes to this monorepo will be documented in this file.
   that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or
   `object` does not start a fold. A `<video>` without controls still swipes.
 - **Clone lifetime vs `changeState`.** `user_fold` / `flipping` are emitted
-  before the portrait clone is inserted. `read` is emitted after the clone is
-  removed, including `cancelTurn()`.
+  before the portrait clone is inserted. A completed turn emits `read` after
+  the clone is removed. `cancelTurn()` emits `read` while the clone is still
+  in the container, so a host can clear the fold face, and removes the clone
+  when that listener returns.
 - **Selection.** The injected block rule keeps `-webkit-touch-callout: none`
   alongside `user-select: none`, on page faces and on the clone.
 

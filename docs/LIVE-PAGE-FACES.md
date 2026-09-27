@@ -81,9 +81,12 @@ After `read` — including `cancelTurn()` — the count is one. The engine does
 not rewrite attributes on clone descendants, so a toggle set after the copy
 survives until the clone is removed.
 
-`changeState` emits `user_fold` or `flipping` **before** the clone is inserted,
-and `read` **after** it is removed. A host that sets `data-flipping` from that
-event therefore turns transitions off before the fold face exists.
+`changeState` emits `user_fold` or `flipping` **before** the clone is inserted.
+A completed turn emits `read` **after** the clone is removed. A cancelled turn
+(`cancelTurn()`) emits `read` **while the clone is still in the container**, so
+a host can clear `data-reading` on the fold face, and removes the clone when
+that listener returns. A host that sets `data-flipping` from `user_fold` /
+`flipping` therefore turns transitions off before the fold face exists.
 
 The trade-off: the stylesheet pattern needs no per-cue DOM writes and paints a
 clone taken mid-cue automatically. The attribute pattern writes one attribute

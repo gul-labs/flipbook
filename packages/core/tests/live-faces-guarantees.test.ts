@@ -234,7 +234,7 @@ describe('G6 — changeState brackets the clone', () => {
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).toBeNull();
   });
 
-  test('cancelTurn announces read only after the clone is gone', () => {
+  test('cancelTurn announces read while the clone is still there, then removes it', () => {
     const { book: app, pages } = book({
       pageCount: 4,
       flippingTime: 800,
@@ -243,13 +243,22 @@ describe('G6 — changeState brackets the clone', () => {
     pages[0]!.innerHTML = '<span data-token-id="x">line</span>';
     app.updateFromHtml(pages);
     const order = watch(app);
+    const seenDuringRead: number[] = [];
+    app.on('changeState', ({ data }) => {
+      if (data.state !== 'read') return;
+      seenDuringRead.push(app.getBlockElement().querySelectorAll('[data-stf-clone]').length);
+    });
 
     dragToFold(app);
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
     app.cancelTurn();
 
     expect(order[0]).toBe('user_fold:0');
-    expect(order[order.length - 1]).toBe('read:0');
+    // While the read listener runs the fold face is still there. Once
+    // cancelTurn returns, that listener has returned and the copy is gone.
+    expect(order).toContain('read:1');
+    expect(seenDuringRead).toContain(1);
+    expect(app.getBlockElement().querySelectorAll('[data-stf-clone]')).toHaveLength(0);
   });
 
   test('flipNext announces flipping before the clone exists', () => {
@@ -266,7 +275,8 @@ describe('G6 — changeState brackets the clone', () => {
     expect(order[0]).toBe('flipping:0');
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
     app.cancelTurn();
-    expect(order[order.length - 1]).toBe('read:0');
+    expect(order).toContain('read:1');
+    expect(app.getBlockElement().querySelector('[data-stf-clone]')).toBeNull();
   });
 });
 
