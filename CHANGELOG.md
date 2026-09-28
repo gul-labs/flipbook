@@ -4,6 +4,37 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — interrupted swipe state and request contracts
+
+- `packages/core/src/Flip/Flip.ts:138`: a BACK swipe at page zero could cancel
+  an in-flight forward turn and then be refused, leaving the book in `flipping`
+  with no animation or calculation. A recognized swipe skips `stopMove()`, so
+  only a later turn recovered it. Refused folds now return to `read` immediately.
+- `packages/core/src/Flip/Flip.ts:228`: a rightward swipe could briefly fold
+  FORWARD, then request a refused BACK turn at page zero. The book reported
+  `user_fold` with no calculation and kept an orphaned visual clone. A refused
+  turn now cancels that drag, removes its clone and returns to `read`.
+- `docs/requests/PB-11-live-text-highlight.md:44`: the request asserted that
+  `changeState` brackets clone insertion/removal, although `Flip.start()`
+  inserts the clone before the entry event and normal completion emits `read`
+  before the next render removes it. Hosts relying on that order could miss the
+  pre-clone window. The request now states the actual event contract.
+- `docs/requests/VIDEO-PAGES-REQUIREMENTS.md:285-286`: a frozen video snapshot
+  cannot stay within one frame of a playing original 35% into a turn, and a
+  browser may make several legitimate range requests for one video. The
+  acceptance tests now check clone-time fidelity and requests caused by turns.
+- `docs/requests/video-pages/probe.mjs:29`: the browser probe was linted as
+  Node source, so its Playwright callbacks' `window` and `document` globals
+  failed `quality:ci`. They are declared for that file's browser callbacks.
+- `docs/requests/video-pages/probe.mjs:88`: a navigation failure printed an
+  error but left the browser open and never failed the command, making probe
+  failures look inconclusive or successful. It now closes on failure and sets
+  a nonzero exit status.
+- **Size:** both swipe fixes spend **128 B raw / 16 B brotli / 14 B gzip** over
+  the previous packed HTML engine (65,846 / 16,018 / 18,127 B), measured with
+  Node zlib defaults. The result is **65,974 / 16,034 / 18,141 B**, within the
+  owner-approved 66 / 16.1 / 18.2 kB ceilings.
+
 ### Fixed — mobile branch adversarial audit
 
 - **Rotation during a turn:** wrapper geometry and the spread cursor now agree

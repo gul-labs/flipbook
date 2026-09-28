@@ -135,7 +135,14 @@ export class Flip {
     // READ/FOLD_CORNER guard then failed forever (corner hover dead), and
     // `UI.onPointerMove`'s `!== READ` test stayed true, so every touchmove
     // called `preventDefault()` and mobile scrolling over the book stopped.
-    if (this.calc === null && !this.start(globalPos)) return;
+    if (this.calc === null && !this.start(globalPos)) {
+      // The refused direction may have interrupted a running turn above.
+      // `reset()` clears its calculation but does not change FLIPPING, and a
+      // recognized swipe releases through userStop(..., true), which skips
+      // stopMove(). Hand the state back here, including for that release path.
+      this.setState(FlippingState.READ);
+      return;
+    }
 
     const generation = this.turnGeneration;
 
@@ -206,6 +213,10 @@ export class Flip {
     const collection = this.app[GET_COLLECTION]();
     const restoreSpread = target === null ? null : collection.getCurrentSpreadIndex();
 
+    // A fast swipe can request a semantic direction different from the fold
+    // the pointer briefly opened. If that request is refused at a boundary,
+    // start() resets calc but the old fold remains in Render until cancelled.
+    const hadUserFold = this.state === FlippingState.USER_FOLD && this.calc !== null;
     let started: boolean;
     try {
       if (target !== null) collection[SET_SPREAD_INDEX](target);
@@ -214,7 +225,11 @@ export class Flip {
       if (restoreSpread !== null) collection[SET_SPREAD_INDEX](restoreSpread);
     }
 
-    if (!started) return false;
+    if (!started) {
+      if (hadUserFold) this.render.cancelAnimation();
+      this.setState(FlippingState.READ);
+      return false;
+    }
 
     // AFTER `start()`, because `start()` opens with `reset()` and `reset()` now
     // drops the target. Setting it first — as this did — meant the turn's own

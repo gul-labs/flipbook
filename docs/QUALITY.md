@@ -21,6 +21,10 @@ tarball (`npm pack page-flip@2.0.7`).
 
 Re-measure with `pnpm size` before quoting current numbers. Owner-approved
 ceilings as of 2026-09-08: **66 kB raw / 16.1 kB brotli / 18.2 kB gzip**.
+After the 2026-09-28 refused-swipe fixes, the packed HTML engine measures
+**65,974 B raw / 16,034 B brotli / 18,141 B gzip** with Node zlib defaults;
+the raw ceiling has **26 B** remaining. The fix spent 128 / 16 / 14 B over the
+previous build. See the current gate output before treating these as current.
 
 **The old "≤ 35 kB minified" target is retired.** Upstream itself is 44 kB;
 that target asked this fork to be smaller while doing more.

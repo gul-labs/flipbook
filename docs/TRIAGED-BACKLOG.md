@@ -74,7 +74,7 @@ Small API/docs that reduce consumer reinventing. Not App Store blockers.
 | **FB-A1** | P2       | ready  | **Closed-book centering recipe** (`changeState` + `visiblePages` + `turnProgress`); consider `centerClosedBook` only if recipe stays painful | Engine parking cover in right half is physically correct. Web desk uses `deskClosedOffsetPx` today. Mobile CSS-centers the stage — different problem. |
 | **FB-A2** | P2       | ready  | **Façade `getSpreadCount()` + current spread index** thin wrappers over collection                                                           | Does **not** replace host publication-key maps (desk pads, phone subsets, `?spread=`).                                                                |
 | **FB-A3** | P2       | parked | **`allowTextSelection`** with drag-vs-selection arbitration                                                                                  | Kids curl mode should not select; Puddlebend accessible mode has no engine. Re-open only if a product requires book-mode copy.                        |
-| **FB-A4** | P2       | ready  | **`validateFlipOptions(options)`** pure preflight (no DOM)                                                                                   | CMS/CI; already on TODO. Watch **bundle ceiling** (~150 B raw headroom at 66 kB).                                                                     |
+| **FB-A4** | P2       | ready  | **`validateFlipOptions(options)`** pure preflight (no DOM)                                                                                   | CMS/CI; already on TODO. Watch **bundle ceiling** (26 B raw headroom at 66 kB after the 2026-09-28 swipe fixes).                                      |
 
 ---
 
@@ -128,7 +128,7 @@ Verify and strike from [TODO.md](./TODO.md) when editing:
 
 ## 7. Bundle ceiling warning
 
-Measured packed HTML engine sits near owner ceilings (**~66 kB raw / 16.1 kB brotli / 18.2 kB gzip**). Additive work (tokens, gutter, `validateFlipOptions`, any core lazy, DOMMatrix) **competes for ~hundreds of bytes**. Policy remains [AGENTS.md](../AGENTS.md) §2: correctness may spend headroom and must say so; vanity must not.
+Measured packed HTML engine is **65,974 B raw / 16,034 B brotli / 18,141 B gzip** (2026-09-28, Node zlib defaults), against owner ceilings of **66 / 16.1 / 18.2 kB**. Additive work (tokens, gutter, `validateFlipOptions`, any core lazy, DOMMatrix) has only **26 B raw headroom** under the current ceiling. Policy remains [AGENTS.md](../AGENTS.md) §2: correctness may spend headroom and must say so; vanity must not.
 
 ---
 

@@ -251,6 +251,46 @@ test.describe('swipe thresholds', () => {
     const snap = await engineSnapshot(page);
     expect(snap.state).toBe('read');
   });
+
+  test('a reverse swipe at page zero does not strand an interrupted forward turn', async ({
+    page,
+  }) => {
+    await openBook(page, '?flippingTime=800&reducedMotion=0');
+    const box = await bookBox(page);
+    const midY = box.y + box.height / 2;
+    const forward = { x: box.x + box.width * 0.75, y: midY };
+    // The block's own box is the visible portrait leaf. Stay inside its BACK
+    // band for the whole swipe, including the last pointermove.
+    const backward = { x: box.x + 20, y: midY };
+
+    await touchSwipeFast(page, forward, { x: forward.x - 80, y: midY });
+    expect((await engineSnapshot(page)).state).toBe('flipping');
+
+    await touchSwipeFast(page, backward, { x: backward.x + DEFAULT_SWIPE_DISTANCE + 10, y: midY });
+    const snap = await engineSnapshot(page);
+    expect(snap.page).toBe(0);
+    expect(snap.state).toBe('read');
+    expect(snap.folding).toBe(false);
+    expect(await visibleLeafCount(page)).toBeGreaterThan(0);
+  });
+
+  test('a boundary swipe that crosses the fold-direction band settles its drag', async ({
+    page,
+  }) => {
+    await openBook(page, '?flippingTime=800&reducedMotion=0');
+    const box = await bookBox(page);
+    const midY = box.y + box.height / 2;
+    const from = { x: box.x + box.width * 0.3, y: midY };
+
+    // The fold becomes FORWARD after crossing its split, but the whole swipe
+    // is rightward and requests BACK. Page zero refuses that semantic turn.
+    await touchSwipeFast(page, from, { x: from.x + 80, y: midY });
+    const snap = await engineSnapshot(page);
+    expect(snap.page).toBe(0);
+    expect(snap.state).toBe('read');
+    expect(snap.folding).toBe(false);
+    await expect(page.locator('#book [data-stf-clone]')).toHaveCount(0);
+  });
 });
 
 test.describe('tap zones', () => {

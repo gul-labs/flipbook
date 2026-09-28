@@ -182,11 +182,12 @@ tears the book down mid-animation.
 
 ## Known gaps in the current state
 
-- **Bundle size.** The audited packed HTML engine is **65.846 kB raw / 16.018 kB
-  brotli / 18.127 kB gzip** against owner-approved ceilings of **66 / 16.1 /
-  18.2 kB** (2026-09-08). The earlier f91a654 measurement was inaccurate. An
+- **Bundle size.** The packed HTML engine is **65.974 kB raw / 16.034 kB
+  brotli / 18.141 kB gzip** after the refused-swipe fixes (2026-09-28), against
+  owner-approved ceilings of **66 / 16.1 / 18.2 kB** (2026-09-08). The earlier
+  f91a654 measurement was inaccurate. An
   agent may not raise ceilings without cause (AGENTS.md §2). These compressed
-  byte counts use Node zlib defaults; size-limit reports 18.07 kB gzip with its
+  byte counts use Node zlib defaults; size-limit reports 18.09 kB gzip with its
   compression settings. Re-measure with
   `pnpm size` before quoting these. The §5 target of 35 kB minified is
   **retired**: upstream `page-flip@2.0.7` is itself 44,058 B minified (measured
