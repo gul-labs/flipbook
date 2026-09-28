@@ -69,6 +69,32 @@ none` / `scale-down` keep the native resolution because they paint it 1:1.
 - **Hygiene:** a completed turn drops the renderer's fold rect, as a cancelled
   one already did (Z4). No visual change.
 
+### Fixed — React binding: controlled `page` and `lazyRadius`
+
+All four existed since 3.0.
+
+- **A controlled `page` change animates.** With ordinary inline children every
+  consumer re-render is a new `pages` identity, which re-ran the controlled
+  effect while its own turn was in flight; re-issuing `flipToPage` committed
+  that turn at once, so `pageTransition: 'animate'` snapped. The binding no
+  longer re-issues a turn already heading for the controlled page.
+- **Fast controlled changes settle on the newest value.** Changing `page`
+  mid-turn commits the outgoing turn first, and its `flip` fed that older page
+  back through `onPageChange`, so the consumer's state stepped backwards
+  (measured `0,1,2,1,3,2,4,3,4`). `onPageChange` is no longer called for those
+  intermediate commits while the binding applies a controlled value; it still
+  fires for the page the book lands on.
+- **A controlled turn the engine abandons is re-issued.** A live resize (a
+  scrollbar, a mobile URL bar) cancels a turn by design; nothing re-ran the
+  controlled effect, so the prop said one page and the book showed another
+  with nothing reported. On `read` short of the controlled page the binding
+  applies the prop again. This includes an explicit `cancelTurn()` on a
+  controlled book: the prop is the source of truth.
+- **`lazyRadius` placeholders keep the page's `className` / `style`.** A leaf
+  crossing the lazy window made React rewrite its `class` attribute, wiping the
+  engine's `stf__item` / density / `--shown` classes and with them the
+  `.stf__item::before` paper layer.
+
 ### Docs — React-only settings, scrubber, live faces
 
 - README and package READMEs state which props exist only on `HTMLFlipBook`
