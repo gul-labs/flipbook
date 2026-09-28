@@ -83,8 +83,8 @@ does.
 
   What the numbers actually are: the spec (§5) says **≤ 35 kB minified** and
   that target is **retired** (upstream itself is 44 kB). The packed HTML engine
-  ceilings are **68 kB raw / 16.5 kB brotli / 18.6 kB gzip** (2026-09-27,
-  owner-approved after mobile live-HTML work), set with headroom for a real
+  ceilings are **69 kB raw / 16.8 kB brotli / 19.0 kB gzip** (2026-09-28,
+  owner-approved for the portrait-clone media hardening), set with headroom for a real
   feature rather than pinned to wherever the code happened to sit. Closing the
   35 kB number would mean removing features (RTL, a11y, the index and null
   guards), not shaving identifiers. See `docs/QUALITY.md`.

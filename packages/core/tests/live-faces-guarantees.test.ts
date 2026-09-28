@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { FlippingState } from '@gullabs/flipbook-core';
 import { installPointerCaptureShims, makeHtmlBook } from './html-book-fixture';
 import { Page } from '../src/Page/Page';
-import { testFlip, testPage } from './engine-access';
+import { testFlip, testPage, testRender } from './engine-access';
 import { isInteractivePointerTarget } from '../src/interactive';
 
 const books: Array<{ destroy: () => void }> = [];
@@ -421,6 +421,249 @@ describe('a turn chained onto a finished portrait turn keeps its own copy', () =
   });
 });
 
+describe('an OS-cancelled drag removes the copy (G3 on the pointercancel path)', () => {
+  test.each(['pointercancel', 'lostpointercapture'])(
+    '%s mid-fold: read with 0 clones, and no frozen fold drawn afterwards',
+    (type) => {
+      const raf = installRafQueue();
+      try {
+        const { book: app } = book({ pageCount: 4, flippingTime: 400, foldCornerOnHover: false });
+        raf.flush();
+        const block = app.getBlockElement();
+        const order: string[] = [];
+        app.on('changeState', ({ data }) => {
+          order.push(`${data.state}:${block.querySelectorAll('[data-stf-clone]').length}`);
+        });
+
+        dragToFold(app, 'touch');
+        raf.flush(2);
+        expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(1);
+
+        const rect = app.getBoundsRect();
+        pointer(type, block, rect.left + rect.width - 120, rect.top + rect.height - 8, 'touch');
+        raf.flush(5);
+
+        expect(order).toEqual(['user_fold:0', 'read:0']);
+        expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+        // Private slot: the renderer must not keep drawing the dropped fold.
+        const render = testRender(app) as unknown as { flippingPage: unknown };
+        expect(render.flippingPage).toBeNull();
+
+        // The next turn still works and cleans up after itself.
+        expect(app.flipNext()).toBe(true);
+        raf.flush();
+        expect(app.getCurrentPageIndex()).toBe(1);
+        expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+      } finally {
+        raf.restore();
+      }
+    },
+  );
+});
+
+describe('an instant jump from a turn-setup listener supersedes that turn', () => {
+  test.each(['flipping', 'user_fold'])(
+    'turnToPage inside changeState(%s) lands on its page, and the outer turn is dropped',
+    (state) => {
+      const raf = installRafQueue();
+      try {
+        const { book: app } = book({ pageCount: 6, flippingTime: 400, foldCornerOnHover: false });
+        raf.flush();
+        const block = app.getBlockElement();
+        const flips: number[] = [];
+        app.on('flip', ({ data }) => flips.push(data.page));
+        let jumped = false;
+        app.on('changeState', ({ data }) => {
+          if (data.state !== state || jumped) return;
+          jumped = true;
+          app.turnToPage(4);
+        });
+
+        if (state === 'flipping') {
+          expect(app.flipNext()).toBe(false);
+        } else {
+          dragToFold(app, 'touch');
+          const rect = app.getBoundsRect();
+          pointer('pointerup', block, rect.left + 4, rect.top + rect.height - 8, 'touch');
+        }
+        raf.flush();
+
+        expect(jumped).toBe(true);
+        expect(flips).toEqual([4]);
+        expect(app.getCurrentPageIndex()).toBe(4);
+        expect(app.getState()).toBe(FlippingState.READ);
+        expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+      } finally {
+        raf.restore();
+      }
+    },
+  );
+});
+
+describe('portrait flipToPage(n) curls the leaf on screen to reveal page n', () => {
+  test.each([
+    { from: 0, to: 4 },
+    { from: 4, to: 0 },
+  ])('flipToPage($to) from $from: mover copies page $from, bottom is page $to', ({ from, to }) => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({
+        pageCount: 6,
+        flippingTime: 400,
+        foldCornerOnHover: false,
+        initialPage: from,
+      });
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(from);
+
+      expect(app.flipToPage(to)).toBe(true);
+      raf.flush(2);
+      const flip = testFlip(app) as unknown as {
+        flippingPage: Page | null;
+        bottomPage: Page | null;
+      } | null;
+      const mover = flip?.flippingPage?.getElement();
+      expect(mover?.hasAttribute('data-stf-clone')).toBe(true);
+      expect(mover?.dataset.page).toBe(String(from));
+      expect(flip?.bottomPage?.getElement().dataset.page).toBe(String(to));
+
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(to);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
+describe('a completed turn drops its copy before flip', () => {
+  test('a flip listener sees one token, and a turn chained from it draws alone', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app, pages } = book({
+        pageCount: 6,
+        flippingTime: 300,
+        foldCornerOnHover: false,
+      });
+      pages[0]!.innerHTML = '<span data-token-id="x">line</span>';
+      app.updateFromHtml(pages);
+      raf.flush();
+      const block = app.getBlockElement();
+      const atFlip: number[] = [];
+      let chained = false;
+      app.on('flip', () => {
+        atFlip.push(block.querySelectorAll('[data-token-id="x"]').length);
+        if (chained) return;
+        chained = true;
+        expect(app.flipNext()).toBe(true);
+      });
+
+      expect(app.flipNext()).toBe(true);
+      for (let i = 0; i < 200 && !chained; i += 1) raf.flush(1);
+      expect(atFlip).toEqual([1]);
+
+      raf.flush(1);
+      const clones = block.querySelectorAll('[data-stf-clone]');
+      expect(clones).toHaveLength(1);
+      expect(clones[0]).toBe(moverElement(app));
+      expect((clones[0] as HTMLElement).dataset.page).toBe('1');
+
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(2);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
+describe('a completed turn leaves no per-turn render state (Z4)', () => {
+  test('the fold rect, mover and bottom page are all dropped', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({ pageCount: 4, flippingTime: 200, foldCornerOnHover: false });
+      raf.flush();
+      expect(app.flipNext()).toBe(true);
+      raf.flush(2);
+      const render = testRender(app) as unknown as {
+        pageRect: unknown;
+        flippingPage: unknown;
+        bottomPage: unknown;
+      };
+      expect(render.pageRect).not.toBeNull();
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(1);
+      expect([render.pageRect, render.flippingPage, render.bottomPage]).toEqual([null, null, null]);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
+describe('a refused turn over a live fold tears the fold down', () => {
+  test.each([2, 10])(
+    'grab a flipNext after %i frames, swipe back at page 0: read, no clone left',
+    (frames) => {
+      const raf = installRafQueue();
+      try {
+        const { book: app } = book({ pageCount: 6, flippingTime: 400, foldCornerOnHover: false });
+        raf.flush();
+        const block = app.getBlockElement();
+        const rect = app.getBoundsRect();
+        const y = rect.top + rect.height - 8;
+
+        expect(app.flipNext()).toBe(true);
+        raf.flush(frames);
+        // Re-grab mid-turn and sweep right fast: released as a swipe toward
+        // `prev`, which page 0 refuses.
+        pointer('pointerdown', block, rect.left + rect.width / 2, y);
+        pointer('pointermove', block, rect.left + rect.width - 30, y);
+        pointer('pointermove', block, rect.left + rect.width - 4, y);
+        expect(app.getState()).toBe(FlippingState.USER_FOLD);
+        pointer('pointerup', block, rect.left + rect.width - 4, y);
+        raf.flush();
+
+        expect(app.getState()).toBe(FlippingState.READ);
+        expect(app.getCurrentPageIndex()).toBe(0);
+        expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+        const render = testRender(app) as unknown as { flippingPage: unknown };
+        expect(render.flippingPage).toBeNull();
+      } finally {
+        raf.restore();
+      }
+    },
+  );
+
+  test('a parked hover peel under a refused flipPrev returns to read', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({ pageCount: 6, flippingTime: 200, foldCornerOnHover: true });
+      raf.flush();
+      const block = app.getBlockElement();
+      const rect = app.getBoundsRect();
+      block.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          buttons: 0,
+          clientX: rect.left + rect.width - 4,
+          clientY: rect.top + rect.height - 4,
+        }),
+      );
+      raf.flush();
+      expect(app.getState()).toBe(FlippingState.FOLD_CORNER);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(1);
+
+      expect(app.flipPrev()).toBe(false);
+      raf.flush();
+      expect(app.getState()).toBe(FlippingState.READ);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
 describe('a copy that cannot be made hands the state back', () => {
   test('flipNext on a detached leaf is rejected and the book stays READ', () => {
     const { book: app, pages } = book({
@@ -441,6 +684,12 @@ describe('a copy that cannot be made hands the state back', () => {
 });
 
 describe('video fold copy — no second player, no audio from the copy', () => {
+  // jsdom has no media pipeline; `load()` only logs "not implemented". The
+  // spy still records which elements it was called on.
+  beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+  });
+
   test('portrait clone replaces video with a canvas and strips audio', () => {
     const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
     const video = document.createElement('video');
@@ -456,7 +705,7 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     pages[0]!.append(video, audio);
     app.updateFromHtml(pages);
 
-    const load = vi.spyOn(HTMLMediaElement.prototype, 'load');
+    const load = vi.mocked(HTMLMediaElement.prototype.load);
     const page = testPage(app, 0) as Page;
     const clone = page.newTemporaryCopy().getElement();
 
@@ -466,8 +715,151 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     expect(pages[0]!.querySelector('video')).toBe(video);
     expect(video.paused).toBe(true);
     expect(video.currentTime).toBe(0);
-    expect(load).not.toHaveBeenCalled();
+    // The original is never reloaded. Each COPY is: that is what aborts the
+    // fetch its copied `src` started while detached.
+    expect(load.mock.contexts).not.toContain(video);
+    expect(load.mock.contexts).not.toContain(audio);
+    expect(load.mock.contexts).toHaveLength(2);
+    for (const copy of load.mock.contexts as HTMLMediaElement[]) {
+      expect(copy.hasAttribute('src')).toBe(false);
+      expect(copy.hasAttribute('autoplay')).toBe(false);
+      expect(copy.isConnected).toBe(false);
+    }
     expect(video.getAttribute('src')).toBe('clip.mp4');
+    expect(video.autoplay).toBe(true);
+    page.hideTemporaryCopy();
+  });
+
+  test('a copied <source> list is emptied before the copy is dropped', () => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    pages[0]!.innerHTML =
+      '<video autoplay loop><source src="a.webm" type="video/webm"><source src="a.mp4"></video>';
+    app.updateFromHtml(pages);
+
+    const load = vi.mocked(HTMLMediaElement.prototype.load);
+    const page = testPage(app, 0) as Page;
+    page.newTemporaryCopy();
+
+    const copy = load.mock.contexts[0] as HTMLVideoElement;
+    expect(copy).not.toBe(pages[0]!.querySelector('video'));
+    expect(copy.querySelector('source')).toBeNull();
+    expect(copy.hasAttribute('autoplay')).toBe(false);
+    expect(pages[0]!.querySelectorAll('source')).toHaveLength(2);
+    page.hideTemporaryCopy();
+  });
+
+  test("the frame canvas keeps the video's attributes, layout box and fit", () => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    const video = document.createElement('video');
+    video.src = 'clip.mp4';
+    video.id = 'hero';
+    video.className = 'cover';
+    video.setAttribute('style', 'object-fit: cover; object-position: 10% 20%; border-radius: 8px');
+    video.dataset.tokenId = 'v1';
+    video.width = 1920;
+    video.height = 1080;
+    Object.defineProperty(video, 'offsetWidth', { get: () => 320 });
+    Object.defineProperty(video, 'offsetHeight', { get: () => 180 });
+    Object.defineProperty(video, 'readyState', { get: () => 2 });
+    Object.defineProperty(video, 'videoWidth', { get: () => 3840 });
+    Object.defineProperty(video, 'videoHeight', { get: () => 2160 });
+    pages[0]!.append(video);
+    app.updateFromHtml(pages);
+
+    const original = HTMLCanvasElement.prototype.getContext;
+    const draws: number[][] = [];
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string) {
+      if (type !== '2d') return original.call(this, type);
+      return {
+        drawImage(_s: CanvasImageSource, ...rect: number[]) {
+          draws.push(rect);
+        },
+      } as unknown as CanvasRenderingContext2D;
+    } as typeof HTMLCanvasElement.prototype.getContext;
+    const dpr = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+
+    try {
+      const page = testPage(app, 0) as Page;
+      const canvas = page.newTemporaryCopy().getElement().querySelector('canvas')!;
+
+      expect(canvas.hasAttribute('data-stf-frame')).toBe(true);
+      expect(canvas.id).toBe('hero');
+      expect(canvas.className).toBe('cover');
+      expect(canvas.dataset.tokenId).toBe('v1');
+      expect(canvas.hasAttribute('src')).toBe(true);
+      expect(canvas.hasAttribute('width')).toBe(true);
+      expect(canvas.style.borderRadius).toBe('8px');
+      expect(canvas.style.width).toBe('320px');
+      expect(canvas.style.height).toBe('180px');
+      expect(canvas.style.boxSizing).toBe('border-box');
+      expect(canvas.style.objectFit).toBe('cover');
+      expect(canvas.style.objectPosition).toBe('10% 20%');
+      // Layout size × DPR, in the video's aspect ratio — not 3840x2160.
+      expect([canvas.width, canvas.height]).toEqual([640, 360]);
+      expect(draws).toEqual([[0, 0, 640, 360]]);
+      page.hideTemporaryCopy();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = original;
+      Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true });
+    }
+  });
+
+  test('a video with no frame yet folds its poster, sized like the video', () => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    const video = document.createElement('video');
+    video.setAttribute('preload', 'none');
+    video.setAttribute('poster', 'https://cdn.example/still.jpg');
+    video.style.backgroundColor = 'black';
+    Object.defineProperty(video, 'offsetWidth', { get: () => 400 });
+    Object.defineProperty(video, 'offsetHeight', { get: () => 300 });
+    pages[0]!.append(video);
+    app.updateFromHtml(pages);
+
+    const page = testPage(app, 0) as Page;
+    const canvas = page.newTemporaryCopy().getElement().querySelector('canvas')!;
+    expect(canvas.getAttribute('data-stf-poster')).toBe('https://cdn.example/still.jpg');
+    expect(canvas.style.backgroundImage).toContain('https://cdn.example/still.jpg');
+    expect(canvas.style.backgroundRepeat).toBe('no-repeat');
+    expect(canvas.style.backgroundColor).toBe('black');
+    expect(canvas.style.width).toBe('400px');
+    page.hideTemporaryCopy();
+  });
+
+  test('iframe, embed and object are replaced by a sized box before the copy is attached', () => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    pages[0]!.innerHTML =
+      '<p>text <iframe class="yt" data-token-id="e1" src="https://www.youtube.com/embed/x"></iframe></p>' +
+      '<embed src="a.swf"><object data="a.pdf"><embed src="fallback.pdf"></object>';
+    const frame = pages[0]!.querySelector('iframe')!;
+    Object.defineProperty(frame, 'offsetWidth', { get: () => 560 });
+    Object.defineProperty(frame, 'offsetHeight', { get: () => 315 });
+    app.updateFromHtml(pages);
+
+    const attached: Element[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of Array.from(r.addedNodes)) attached.push(n as Element);
+    });
+    observer.observe(app.getBlockElement(), { childList: true, subtree: true });
+
+    const page = testPage(app, 0) as Page;
+    const clone = page.newTemporaryCopy().getElement();
+    observer
+      .takeRecords()
+      .forEach((r) => Array.from(r.addedNodes).forEach((n) => attached.push(n as Element)));
+    observer.disconnect();
+
+    expect(clone.querySelector('iframe, embed, object')).toBeNull();
+    // The clone was attached once, already free of embeds.
+    expect(attached).toEqual([clone]);
+    const box = clone.querySelector<HTMLElement>('div[data-stf-embed].yt')!;
+    expect(box.dataset.tokenId).toBe('e1');
+    expect(box.style.display).toBe('inline-block');
+    expect(box.style.width).toBe('560px');
+    expect(box.style.height).toBe('315px');
+    expect(clone.querySelectorAll('[data-stf-embed]').length).toBeGreaterThanOrEqual(3);
+    expect(pages[0]!.querySelector('iframe')).toBe(frame);
     page.hideTemporaryCopy();
   });
 
@@ -478,6 +870,8 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     Object.defineProperty(video, 'readyState', { get: () => 2 });
     Object.defineProperty(video, 'videoWidth', { get: () => 16 });
     Object.defineProperty(video, 'videoHeight', { get: () => 9 });
+    Object.defineProperty(video, 'offsetWidth', { get: () => 160 });
+    Object.defineProperty(video, 'offsetHeight', { get: () => 90 });
     pages[0]!.append(video);
     app.updateFromHtml(pages);
 

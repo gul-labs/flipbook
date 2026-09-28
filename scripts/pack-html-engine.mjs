@@ -109,7 +109,12 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // decoder is the cost of leaving the clone as a live <video>. Ceiling raised
 // to 68 / 16.5 / 18.6 kB with headroom, recorded in the commit. Not a silent
 // ratchet — the delta is the snapshot plus the changeState clone-order fix.
-const RAW_ALARM_BYTES = 68_000;
+// 2026-09-28 clone media hardening (silence copied media, stand-ins for
+// iframe/embed/object, frame canvas sized to the video's layout box, poster):
+// measured 68_329 B raw / 16_712 B brotli / 18_937 B gzip (Node zlib
+// defaults; size-limit: 18.88 kB gzip). Owner approved
+// 69 / 16.8 / 19.0 kB in the audit conversation.
+const RAW_ALARM_BYTES = 69_000;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

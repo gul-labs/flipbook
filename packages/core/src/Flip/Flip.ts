@@ -193,9 +193,14 @@ export class Flip {
 
     // THE PHANTOM SPREAD IS INSTALLED FOR `start()` AND FOR NOTHING ELSE.
     //
-    // It exists so `getFlippingPage` / `getBottomPage` pick the DESTINATION
-    // leaves rather than the neighbouring ones, which is a fact only `start()`
-    // needs. It used to be installed by `flipToPage` around this whole call,
+    // It exists so `getBottomPage` — and, in landscape, `getFlippingPage` —
+    // pick the DESTINATION leaves rather than the neighbouring ones, which is
+    // a fact only `start()` needs. The portrait mover is deliberately NOT
+    // taken under it: `installFlippingPages` copies it after the announcement,
+    // from the spread the book is really on, so the leaf on screen curls away
+    // to reveal the destination. (Taken under the phantom, the first frame
+    // jumped to the face of the leaf BEFORE the destination.) It used to be
+    // installed by `flipToPage` around this whole call,
     // which meant it was still installed when `setState(FLIPPING)` below
     // dispatched to consumer code — so a turn started from that listener chose
     // its own flipping and bottom pages from a spread the book was not on, and
@@ -208,6 +213,11 @@ export class Flip {
     const collection = this.app[GET_COLLECTION]();
     const restoreSpread = target === null ? null : collection.getCurrentSpreadIndex();
 
+    // A fold with no animation of its own survives `finishOutgoingTurn`: a
+    // drag the finger is still on, or a parked hover peel. `start()` opens
+    // with `reset()`, so it is discarded whether or not the new turn starts.
+    const droppingFold = this.calc !== null;
+
     let started: boolean;
     try {
       if (target !== null) collection[SET_SPREAD_INDEX](target);
@@ -216,7 +226,19 @@ export class Flip {
       if (restoreSpread !== null) collection[SET_SPREAD_INDEX](restoreSpread);
     }
 
-    if (!started) return false;
+    if (!started) {
+      // A refused turn has thrown that fold away, so it has to be torn down
+      // here: the renderer still held its mover (for portrait, the clone) and
+      // kept drawing it, and nothing handed the state back. Measured: a fast
+      // drag that re-grabbed a turn mid-flight released as a swipe toward a
+      // boundary; `flipPrev` at page 0 was refused and the book stayed in
+      // `user_fold` with `calc: null` and a frozen clone on screen.
+      if (droppingFold) {
+        this.render.cancelAnimation();
+        this.setState(FlippingState.READ);
+      }
+      return false;
+    }
 
     // AFTER `start()`, because `start()` opens with `reset()` and `reset()` now
     // drops the target. Setting it first — as this did — meant the turn's own
@@ -882,6 +904,14 @@ export class Flip {
       const target = this.pendingTarget;
       this.pendingTarget = null;
 
+      // A settling turn (commit or snap-back) drops its portrait copy FIRST,
+      // before `flip` and `read` hand control to consumer code. After `flip`,
+      // a host's token lookup saw the fold face twice, and a turn chained
+      // from `onFlip` drew beside the stale copy for a frame. Both DOM writes
+      // land before the next paint, so nothing flashes. A parked hover peel
+      // (`needReset: false`) keeps its copy.
+      if (needReset) this.flippingPage?.getCopyOwner()?.hideTemporaryCopy();
+
       if (isTurned) {
         // A `flipToPage` re-installs its phantom index for exactly this
         // instant, so the one-step commit below steps off it and lands on the
@@ -911,30 +941,11 @@ export class Flip {
       if (this.turnGeneration !== generation) return;
 
       if (needReset) {
-        // Z4, RECORDED AND NOT FIXED HERE — it cannot be, from this file.
-        //
-        // `Render.cancelAnimation` drops four pieces of per-turn state; this
-        // path drops three. `render.pageRect` — the clip
-        // `drawInnerShadow` cuts the inner shadow against —
-        // survives a completed turn, so the renderer carries one turn's fold
-        // geometry into the next.
-        //
-        // It is state hygiene, not a reproducible visual defect, and the same is
-        // true of RD2 on the cancel path. `pageRect` has exactly one reader on
-        // each renderer, both guarded by `shadow !== null`, and the shadow is
-        // cleared on the line below. Its only writer is `do()`, which writes it
-        // BEFORE `setShadowData` in the same call — so by the time a shadow
-        // exists again, the rect beside it is from the same frame. There is no
-        // ordering in which the stale rect can be drawn.
-        //
-        // Fixing it needs `Render.setPageRect(pageRect: RectPoints | null)`
-        // (Render.ts:716); this agent's file scope excludes that file, so the
-        // asymmetry is left visible rather than papered over with a cast.
+        // Z4: the fold rect goes with the turn, as on the cancel path (RD2).
+        // Its readers are shadow-guarded, so this is hygiene, not a visual fix:
+        // one turn's fold geometry no longer outlives it.
+        this.render.setPageRect(null);
         this.render.setBottomPage(null);
-        // Drop the portrait copy before READ. Clearing the slot alone leaves
-        // the node in the tree until the next frame's delta clear, so a
-        // `changeState('read')` listener still saw the clone.
-        this.flippingPage?.getCopyOwner()?.hideTemporaryCopy();
         this.render.setFlippingPage(null);
         this.render.clearShadow();
 

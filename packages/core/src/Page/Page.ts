@@ -711,48 +711,137 @@ export class Page {
   }
 }
 
+/** Elements whose copy would be a second player or a second document. */
+const LIVE_EMBEDS = 'video,audio,iframe,embed,object';
+
 /**
- * One pass over the clone, paired by document order with the original.
- * Never writes `currentTime`, `pause`, or `load` on the original.
+ * One pass over the clone, paired by document order with the original (the
+ * clone is a synchronous `cloneNode(true)`, so the two lists line up). Runs
+ * while the clone is still detached: an `<iframe>` / `<embed>` / `<object>`
+ * only loads once it is inserted, so replacing it here means it never does.
+ * A media element is different — `cloneNode` copies `src`, and that alone
+ * starts a fetch (and, with `autoplay`, playback) on a detached copy, which
+ * `replaceWith` / `remove` do not stop. `silence` aborts it.
+ *
+ * Never touches the original: no `currentTime`, `pause`, or `load`.
  */
 function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): void {
-  const sources = original.querySelectorAll('video, audio');
-  const copies = clone.querySelectorAll('video, audio');
-  const count = Math.min(sources.length, copies.length);
+  const sources = original.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
+  if (sources.length === 0) return;
+  const copies = clone.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     const copy = copies[i];
     if (source === undefined || copy === undefined) continue;
 
-    if (source instanceof HTMLVideoElement && copy instanceof HTMLVideoElement) {
-      replaceWithFrame(source, copy);
-    } else if (copy instanceof HTMLAudioElement) {
-      copy.remove();
-    }
+    if (copy instanceof HTMLMediaElement) silence(copy);
+
+    if (source instanceof HTMLVideoElement) copy.replaceWith(frameOf(source));
+    else if (copy instanceof HTMLAudioElement) copy.remove();
+    else copy.replaceWith(standIn(source, 'div', 'data-stf-embed'));
   }
 }
 
-function replaceWithFrame(source: HTMLVideoElement, copy: HTMLVideoElement): void {
-  const box = document.createElement('canvas');
-  box.setAttribute('data-stf-frame', '');
-  const width = source.videoWidth || source.width;
-  const height = source.videoHeight || source.height;
-  if (width > 0) box.width = width;
-  if (height > 0) box.height = height;
+/** Abort the load the copied `src` started, and keep the copy from playing. */
+function silence(copy: HTMLMediaElement): void {
+  copy.removeAttribute('autoplay');
+  copy.removeAttribute('src');
+  for (const source of Array.from(copy.querySelectorAll('source'))) source.remove();
+  copy.load();
+}
 
-  const ready = source.readyState >= 2 && source.videoWidth > 0;
-  const ctx = ready ? box.getContext('2d') : null;
+/**
+ * An inert box that takes `source`'s place in the page's layout. It carries
+ * every attribute (so `class` / `style` / `id` rules and the host's `data-*`
+ * still apply — PB-11 G1) except `width` / `height`, which on a canvas would
+ * size the backing store, and it is pinned to the source's on-page size: a
+ * canvas or a div has no intrinsic size of the source's to fall back on.
+ */
+function standIn<K extends 'canvas' | 'div'>(
+  source: HTMLElement,
+  tag: K,
+  marker: string,
+  computed: CSSStyleDeclaration = getComputedStyle(source),
+): HTMLElementTagNameMap[K] {
+  const box = document.createElement(tag);
+  for (const { name, value } of Array.from(source.attributes)) {
+    if (name !== 'width' && name !== 'height') box.setAttribute(name, value);
+  }
+  box.setAttribute(marker, '');
+
+  const style = box.style;
+  // `inline` would collapse a div; an inline replaced element lays out as
+  // `inline-block`.
+  style.display = computed.display === 'inline' ? 'inline-block' : computed.display;
+  const width = source.offsetWidth;
+  const height = source.offsetHeight;
+  if (width > 0 && height > 0) {
+    style.boxSizing = 'border-box';
+    style.width = `${width}px`;
+    style.height = `${height}px`;
+  }
+  return box;
+}
+
+/**
+ * The video's current frame, fitted the way the video fits it. The backing
+ * store keeps the video's aspect ratio, so the copied `object-fit` /
+ * `object-position` crop and letterbox exactly as the `<video>` did, and it is
+ * capped at the on-page size times the device pixel ratio: a 4K frame used to
+ * allocate ~33 MB and cost ~10 ms of `drawImage` at the start of every turn.
+ * With no frame yet, the poster the original is showing is painted instead.
+ */
+function frameOf(source: HTMLVideoElement): HTMLCanvasElement {
+  const computed = getComputedStyle(source);
+  const box = standIn(source, 'canvas', 'data-stf-frame', computed);
+  const style = box.style;
+  style.objectFit = computed.objectFit;
+  style.objectPosition = computed.objectPosition;
+
+  const width = source.offsetWidth;
+  const height = source.offsetHeight;
+  const frameWidth = source.videoWidth;
+  const frameHeight = source.videoHeight;
+  const ctx =
+    source.readyState >= 2 && frameWidth > 0 && frameHeight > 0 && width > 0 && height > 0
+      ? box.getContext('2d')
+      : null;
+
   if (ctx !== null) {
+    const fit = Math.max(width / frameWidth, height / frameHeight) * (window.devicePixelRatio || 1);
+    const scale = Math.min(1, fit);
+    box.width = Math.max(1, Math.round(frameWidth * scale));
+    box.height = Math.max(1, Math.round(frameHeight * scale));
+    // `drawImage` on a video does not throw for readiness or for a
+    // cross-origin source (that only taints the canvas); guarded anyway,
+    // because a throw here would escape a pointer handler mid-turn.
     try {
       ctx.drawImage(source, 0, 0, box.width, box.height);
     } catch {
-      // Tainted. The blank box still cannot request the file.
+      // A blank box still makes no request.
     }
+    return box;
   }
-  const poster = source.getAttribute('poster');
-  // Record the URL. Fetching it would be the second request this copy must not make.
-  if (poster !== null && poster !== '' && ctx === null) box.setAttribute('data-stf-poster', poster);
 
-  copy.replaceWith(box);
+  const poster = source.poster;
+  if (poster !== '') {
+    box.setAttribute('data-stf-poster', poster);
+    // The original is displaying this URL, so it is a cache hit, not the
+    // second request the copy exists to avoid. `poster` sizes like the frame.
+    // Longhands: the shorthand would also reset a host's background-color.
+    const fit = computed.objectFit;
+    style.backgroundImage = `url(${JSON.stringify(poster)})`;
+    style.backgroundPosition = computed.objectPosition;
+    style.backgroundSize =
+      fit === 'fill'
+        ? '100% 100%'
+        : fit === 'none'
+          ? 'auto'
+          : fit === 'cover'
+            ? 'cover'
+            : 'contain';
+    style.backgroundRepeat = 'no-repeat';
+  }
+  return box;
 }

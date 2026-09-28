@@ -8,10 +8,23 @@ All notable changes to this monorepo will be documented in this file.
 
 - **Media in the portrait clone.** A soft portrait turn replaces each cloned
   `<video>` with a canvas of the original's current frame and removes cloned
-  `<audio>`. The copy does not issue a second media request, start a second
-  decoder, or play audio. A cloned `<canvas>` is unsupported (pixels are not
-  copied). The original element is not paused, seeked, or reloaded. Landscape
-  still folds the live leaf. A hard page still does not clone.
+  `<audio>`. Before it is dropped, each copied media element loses `src`,
+  `autoplay` and its `<source>` children and is reloaded empty: `cloneNode`
+  copies `src`, which starts a fetch (and, with `autoplay`, playback) even on
+  a detached element. The copy therefore issues no second media request,
+  starts no second decoder, and plays no audio. The frame canvas carries the
+  video's attributes (`class`, `style`, `id`, `data-*`) and its on-page box,
+  `object-fit` and `object-position`. Its backing store is the layout size ×
+  `devicePixelRatio`, not the video's native resolution (a 4K frame no longer
+  allocates ~33 MB per turn). A video with no frame yet shows its poster as the
+  canvas background, from the URL the original is already displaying.
+  `<iframe>`, `<embed>` and `<object>` in the clone are replaced by an empty box
+  with the same attributes and size before the clone is attached, so they never
+  load a second time. A cloned `<canvas>` is unsupported (pixels are not
+  copied). Media inside a shadow root or started by a custom element's
+  `connectedCallback` is not handled. The original element is not paused,
+  seeked, or reloaded. Landscape still folds the live leaf. A hard page still
+  does not clone.
 - **Interactive replaced elements.** With `respectInteractiveContent`, a pointer
   that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or
   `object` does not start a fold. A `<video>` without controls still swipes.
@@ -19,8 +32,39 @@ All notable changes to this monorepo will be documented in this file.
   before the portrait clone is inserted. `read` is emitted after the clone
   is removed, on a completed turn and on `cancelTurn()`. Keeping the clone
   through the cancel `read` event detached a turn the listener started.
-- **Selection.** The injected block rule keeps `-webkit-touch-callout: none`
-  alongside `user-select: none`, on page faces and on the clone.
+- **Selection.** The injected block rule now sets `-webkit-touch-callout: none`
+  alongside `user-select: none`, on page faces and on the clone. It inherits:
+  iOS no longer offers the long-press link/image preview inside pages. A host
+  that wants it back sets `-webkit-touch-callout: default` on those elements.
+- **The copy leaves before `flip`.** A settling turn drops its portrait copy
+  before it commits, so a `flip` listener's token lookup finds one element, not
+  two, and a turn chained from `onFlip` never draws beside the stale copy.
+- **A turn started while the previous copy is settling keeps its own copy.**
+  `flipNext()` during a snap-back, or a turn started from a `read` listener,
+  re-copies the same leaf; the renderer's next frame used to delete that new
+  copy, and the turn animated with no visible leaf.
+- **OS-cancelled drags** (`pointercancel`, `lostpointercapture` — an iOS pan
+  steal) drop the fold's render state before `read`. The renderer used to keep
+  drawing a frozen half-fold, and for a portrait turn the clone stayed in the
+  tree until the next turn. Existing since 3.0.
+- **A refused turn over a live fold returns to `read`.** A programmatic or swipe
+  turn refused while a drag or hover peel was live (for example, re-grabbing a
+  `flipNext()` mid-flight and swiping toward page 0) discarded the fold but left
+  the book in `user_fold` / `fold_corner` with the fold still drawn. Existing
+  since 3.0.
+- **`turnToPage` from a turn-setup `changeState` listener** supersedes that
+  turn: the outer `flipNext()` returns `false`, and the book lands on the
+  requested page instead of committing one more page on top of it. Existing
+  since 3.0.
+- **A leaf whose element was removed from the document** (`DETACHED_PAGE`) is
+  still reported as `turnRejected`, and the book now returns to `read` rather
+  than staying in `flipping`. Because the copy is taken after the
+  announcement, that case emits `flipping` then `read` around the rejection.
+- **Portrait `flipToPage(n)` curls the leaf on screen** to reveal page `n`. It
+  used to animate a copy of the leaf next to the destination, so the first
+  frame jumped to a page the reader had never seen. Landscape is unchanged.
+- **Hygiene:** a completed turn drops the renderer's fold rect, as a cancelled
+  one already did (Z4). No visual change.
 
 ### Docs — React-only settings, scrubber, live faces
 

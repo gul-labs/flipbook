@@ -1126,6 +1126,15 @@ export class PageFlip extends EventObject {
     try {
       this.render?.finishAnimation();
 
+      // A fold still live after the settle — a drag, a hover peel, or a turn
+      // inside its own `changeState` setup window, which has a calculation
+      // but no animation for `finishAnimation` to settle — was measured
+      // against the spread this jump leaves. Left alone it animated the old
+      // mover over the new spread and then committed a second page on top of
+      // the jump. Abandoning it bumps the turn generation, so a turn caught in
+      // setup returns `false` (superseded) instead of resuming.
+      if (this.flipController?.getCalculation() != null) this.abandonInFlightTurn();
+
       if (this.destroyed || this.pages === null || this.pages !== before) return;
 
       commit();

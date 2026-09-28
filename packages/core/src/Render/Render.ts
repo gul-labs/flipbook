@@ -1159,7 +1159,7 @@ export class Render {
    *
    * @param direction
    */
-  public setPageRect(pageRect: RectPoints): void {
+  public setPageRect(pageRect: RectPoints | null): void {
     this.requestFrame();
 
     this.pageRect = pageRect;

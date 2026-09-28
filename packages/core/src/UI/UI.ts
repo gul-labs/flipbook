@@ -837,6 +837,13 @@ export class UI {
       if (flip === null) return;
 
       this.app.userStop(lastPos, true);
+      // `abandon()` resets the controller only. The renderer still held the
+      // fold's mover and bottom page, so every later frame redrew a frozen
+      // half-fold — for a portrait turn, the clone, which then never left the
+      // tree (`pointercancel` on an iOS pan steal). Drop the render's half
+      // first, exactly as `PageFlip.abandonInFlightTurn` does, so `read` is
+      // announced with the clone already gone.
+      if (!this.app.isDestroyed()) this.app[GET_RENDER]().cancelAnimation();
       flip.abandon();
 
       // Repaint the spread: the last frame drawn was a fold that no longer
