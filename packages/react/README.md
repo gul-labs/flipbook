@@ -77,14 +77,14 @@ export function Book() {
 
 Handle methods (`ref` → `FlipBookHandle`):
 
-| Method                  | Role                                                                                                                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `flipNext` / `flipPrev` | Animate relative turn (`boolean`)                                                                                                                                                      |
-| `flipToPage(n)`         | Animate to page (`boolean`)                                                                                                                                                            |
-| `turnToPage(n)`         | Instant jump (`boolean`)                                                                                                                                                               |
-| `cancelTurn()`          | Abandon in-flight turn without committing. The `read` event still sees the portrait clone; it is gone when the call returns. A completed turn emits `read` after the clone is removed. |
-| `destroy()`             | Tear down the engine **and** retire the React shell                                                                                                                                    |
-| `pageFlip()`            | Escape hatch → core `PageFlip \| null`                                                                                                                                                 |
+| Method                  | Role                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `flipNext` / `flipPrev` | Animate relative turn (`boolean`)                                                                                               |
+| `flipToPage(n)`         | Animate to page (`boolean`)                                                                                                     |
+| `turnToPage(n)`         | Instant jump (`boolean`)                                                                                                        |
+| `cancelTurn()`          | Abandon in-flight turn without committing. `read` fires after the portrait clone is removed, on a completed turn and on cancel. |
+| `destroy()`             | Tear down the engine **and** retire the React shell                                                                             |
+| `pageFlip()`            | Escape hatch → core `PageFlip \| null`                                                                                          |
 
 Queries such as `getPageCount` / `getVisiblePages` live on the **engine**
 (`pageFlip()?.getPageCount()`) or on `usePageFlip()` state — not on the handle.

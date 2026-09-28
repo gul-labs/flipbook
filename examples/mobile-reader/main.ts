@@ -27,8 +27,8 @@ const animatedFlippingTime = Number(params.get('flippingTime') ?? 700);
 
 // Vanilla PageFlip. `lazyRadius` is React-only and is ignored here — window
 // the DOM yourself if a long book must not mount every leaf. A portrait curl
-// freezes `<video>` as a canvas and strips `<audio>`. `cancelTurn()` emits
-// `read` while that clone is still in the book. This host owns playback.
+// freezes `<video>` as a canvas and strips `<audio>`. `read` fires after that
+// clone is removed, including on `cancelTurn()`. This host owns playback.
 const book = new PageFlip(root, {
   width: 400,
   height: 520,

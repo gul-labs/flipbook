@@ -207,9 +207,8 @@ audio track. A cloned `<canvas>` is unsupported. Landscape folds the live
 element. With `respectInteractiveContent` (default on), a pointer that starts
 on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or `object` does
 not start a fold; a `<video>` without controls still swipes. Core does not
-play, pause, or load media the host created. A completed turn emits `read`
-after the clone is removed. `cancelTurn()` emits `read` while the clone is
-still there and removes it when that listener returns. Full contract:
+play, pause, or load media the host created. `read` fires after the portrait
+clone is removed, on a completed turn and on `cancelTurn()`. Full contract:
 [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md).
 
 ---

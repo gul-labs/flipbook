@@ -27,19 +27,19 @@ pageFlip.loadFromHTML(pages);
 
 ## Essentials
 
-| Topic        | Rule                                                                                                                                                                                                                 |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Paper color  | `pageBackground` (default `#fff`) → `--stf-paper`. Opacity is structural.                                                                                                                                            |
-| Leaf styling | Style an **inner** wrapper; the engine owns layout + paper on the leaf root.                                                                                                                                         |
-| Stylesheet   | Default injects CSS. CSP: `injectStyles: false` + ship `style.css` / `FLIPBOOK_CSS`.                                                                                                                                 |
-| Navigation   | `flipToPage` / `flipNext` / `flipPrev` animate; `turnTo*` are instant. Relative turns return `boolean` and may emit `turnRejected`.                                                                                  |
-| Progress     | `turnProgress` while a fold moves. Silent on `flippingTime: 0`, reduced motion, and hover peel. No terminal `1.0`. Settle with `flip` / `changeState`.                                                               |
-| React-only   | `lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, controlled `page` / `pageTransition` are not `FlipOptions`. Unknown keys are ignored. Window the DOM yourself.                                                |
-| Cancel       | `cancelTurn()` aborts an in-flight turn without committing. Its `read` event still sees the portrait clone; the clone is gone when `cancelTurn()` returns. A completed turn emits `read` after the clone is removed. |
-| Media        | A portrait clone replaces each `<video>` with a canvas of the current frame and strips `<audio>`. No second request, decoder, or audio. A cloned `<canvas>` is unsupported. Landscape folds the live element.        |
-| Controls     | With `respectInteractiveContent` (default on), a pointer that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or `object` does not start a fold. A `<video>` without controls still swipes.       |
-| Playback     | Core does not play, pause, or load media the host created. Play from `getVisiblePages()`.                                                                                                                            |
-| Queries      | `getVisiblePages()`, `canTurn(dir)`, `getPageCount()`, `getCurrentPageIndex()`, `isReady()`, `isAnimating()`.                                                                                                        |
+| Topic        | Rule                                                                                                                                                                                                           |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Paper color  | `pageBackground` (default `#fff`) → `--stf-paper`. Opacity is structural.                                                                                                                                      |
+| Leaf styling | Style an **inner** wrapper; the engine owns layout + paper on the leaf root.                                                                                                                                   |
+| Stylesheet   | Default injects CSS. CSP: `injectStyles: false` + ship `style.css` / `FLIPBOOK_CSS`.                                                                                                                           |
+| Navigation   | `flipToPage` / `flipNext` / `flipPrev` animate; `turnTo*` are instant. Relative turns return `boolean` and may emit `turnRejected`.                                                                            |
+| Progress     | `turnProgress` while a fold moves. Silent on `flippingTime: 0`, reduced motion, and hover peel. No terminal `1.0`. Settle with `flip` / `changeState`.                                                         |
+| React-only   | `lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, controlled `page` / `pageTransition` are not `FlipOptions`. Unknown keys are ignored. Window the DOM yourself.                                          |
+| Cancel       | `cancelTurn()` aborts an in-flight turn without committing. `read` fires after the portrait clone is removed, on a completed turn and on cancel.                                                               |
+| Media        | A portrait clone replaces each `<video>` with a canvas of the current frame and strips `<audio>`. No second request, decoder, or audio. A cloned `<canvas>` is unsupported. Landscape folds the live element.  |
+| Controls     | With `respectInteractiveContent` (default on), a pointer that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or `object` does not start a fold. A `<video>` without controls still swipes. |
+| Playback     | Core does not play, pause, or load media the host created. Play from `getVisiblePages()`.                                                                                                                      |
+| Queries      | `getVisiblePages()`, `canTurn(dir)`, `getPageCount()`, `getCurrentPageIndex()`, `isReady()`, `isAnimating()`.                                                                                                  |
 
 ## Error codes
 

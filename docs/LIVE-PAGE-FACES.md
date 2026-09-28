@@ -78,18 +78,16 @@ for (const el of container.querySelectorAll(`[data-token-id="${CSS.escape(id)}"]
 
 The lookup returns **two** elements while a portrait curl is up: the original
 and the clone (`data-stf-clone`), because the clone is in the same container.
-After a completed turn's `read` listener returns, the count is one. A
-`cancelTurn()` `read` listener still sees two: the clone is removed when that
-listener returns, and the count is one only after `cancelTurn()` itself
-returns. The engine does not rewrite attributes on clone descendants, so a
-toggle set after the copy survives until the clone is removed.
+When `read` fires — a completed turn or `cancelTurn()` — the count is one.
+The engine does not rewrite attributes on clone descendants, so a toggle set
+after the copy survives until the clone is removed.
 
-`changeState` emits `user_fold` or `flipping` **before** the clone is inserted.
-A completed turn emits `read` **after** the clone is removed. A cancelled turn
-(`cancelTurn()`) emits `read` **while the clone is still in the container**, so
-a host can clear `data-reading` on the fold face, and removes the clone when
-that listener returns. A host that sets `data-flipping` from `user_fold` /
-`flipping` therefore turns transitions off before the fold face exists.
+`changeState` emits `user_fold` or `flipping` **before** the clone is inserted,
+and `read` **after** it is removed, on a completed turn and on `cancelTurn()`.
+A host that sets `data-flipping` from `user_fold` / `flipping` therefore turns
+transitions off before the fold face exists. Clear `data-reading` on `read`:
+the fold face is already gone, which is what keeps a turn chained from that
+listener from losing its own copy.
 
 The trade-off: the stylesheet pattern needs no per-cue DOM writes and paints a
 clone taken mid-cue automatically. The attribute pattern writes one attribute

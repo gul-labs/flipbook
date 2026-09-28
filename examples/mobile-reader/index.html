@@ -115,9 +115,8 @@
     </style>
     <!--
       Shared highlight rules live OUTSIDE every page subtree so the portrait
-      copy still matches. The clock only rewrites this sheet. A completed
-      turn's `read` listener sees the copy already gone; `cancelTurn()`'s
-      `read` listener still sees it.
+      copy still matches. The clock only rewrites this sheet. `read` fires
+      after that copy is gone, on a completed turn and on cancelTurn().
     -->
     <style id="highlight-sheet"></style>
   </head>
