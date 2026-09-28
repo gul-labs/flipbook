@@ -748,21 +748,26 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     page.hideTemporaryCopy();
   });
 
-  test("the frame canvas keeps the video's attributes, layout box and fit", () => {
+  test("the frame canvas keeps the video's attributes, resolved style and fit", () => {
+    // A TAG rule: it cannot match the <canvas>, so only the resolved style
+    // carries it across. This is the full-bleed loop under overlaid text.
+    const sheet = document.createElement('style');
+    sheet.textContent =
+      '.bg video { position: absolute; top: 0; left: 0; width: 320px; height: 180px; margin: 4px; border-radius: 8px; z-index: 0 }';
+    document.head.append(sheet);
     const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
     const video = document.createElement('video');
     video.src = 'clip.mp4';
     video.id = 'hero';
     video.className = 'cover';
-    video.setAttribute('style', 'object-fit: cover; object-position: 10% 20%; border-radius: 8px');
+    video.setAttribute('style', 'object-fit: cover; object-position: 10% 20%');
     video.dataset.tokenId = 'v1';
     video.width = 1920;
     video.height = 1080;
-    Object.defineProperty(video, 'offsetWidth', { get: () => 320 });
-    Object.defineProperty(video, 'offsetHeight', { get: () => 180 });
     Object.defineProperty(video, 'readyState', { get: () => 2 });
     Object.defineProperty(video, 'videoWidth', { get: () => 3840 });
     Object.defineProperty(video, 'videoHeight', { get: () => 2160 });
+    pages[0]!.classList.add('bg');
     pages[0]!.append(video);
     app.updateFromHtml(pages);
 
@@ -787,53 +792,83 @@ describe('video fold copy — no second player, no audio from the copy', () => {
       expect(canvas.id).toBe('hero');
       expect(canvas.className).toBe('cover');
       expect(canvas.dataset.tokenId).toBe('v1');
-      expect(canvas.hasAttribute('src')).toBe(true);
-      expect(canvas.hasAttribute('width')).toBe(true);
+      // Tag-rule layout, carried inline.
+      expect(canvas.style.position).toBe('absolute');
+      expect(canvas.style.top).toBe('0px');
+      expect(canvas.style.marginLeft).toBe('4px');
       expect(canvas.style.borderRadius).toBe('8px');
       expect(canvas.style.width).toBe('320px');
       expect(canvas.style.height).toBe('180px');
-      expect(canvas.style.boxSizing).toBe('border-box');
       expect(canvas.style.objectFit).toBe('cover');
       expect(canvas.style.objectPosition).toBe('10% 20%');
-      // Layout size × DPR, in the video's aspect ratio — not 3840x2160.
+      // Box × DPR, in the video's aspect ratio — not 3840x2160.
       expect([canvas.width, canvas.height]).toEqual([640, 360]);
       expect(draws).toEqual([[0, 0, 640, 360]]);
       page.hideTemporaryCopy();
     } finally {
       HTMLCanvasElement.prototype.getContext = original;
       Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true });
+      sheet.remove();
     }
   });
 
-  test('a video with no frame yet folds its poster, sized like the video', () => {
+  test('object-fit none keeps the frame at its intrinsic resolution', () => {
     const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
     const video = document.createElement('video');
-    video.setAttribute('preload', 'none');
-    video.setAttribute('poster', 'https://cdn.example/still.jpg');
-    video.style.backgroundColor = 'black';
-    Object.defineProperty(video, 'offsetWidth', { get: () => 400 });
-    Object.defineProperty(video, 'offsetHeight', { get: () => 300 });
+    video.setAttribute('style', 'object-fit: none; width: 320px; height: 180px');
+    Object.defineProperty(video, 'readyState', { get: () => 2 });
+    Object.defineProperty(video, 'videoWidth', { get: () => 1920 });
+    Object.defineProperty(video, 'videoHeight', { get: () => 1080 });
     pages[0]!.append(video);
     app.updateFromHtml(pages);
 
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string) {
+      if (type !== '2d') return original.call(this, type);
+      return { drawImage() {} } as unknown as CanvasRenderingContext2D;
+    } as typeof HTMLCanvasElement.prototype.getContext;
+    try {
+      const page = testPage(app, 0) as Page;
+      const canvas = page.newTemporaryCopy().getElement().querySelector('canvas')!;
+      expect([canvas.width, canvas.height]).toEqual([1920, 1080]);
+      page.hideTemporaryCopy();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = original;
+    }
+  });
+
+  test('a video that has not played folds its poster, even with a decoded frame', () => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    const video = document.createElement('video');
+    video.setAttribute('preload', 'auto');
+    video.setAttribute('poster', 'https://cdn.example/still.jpg');
+    video.setAttribute('style', 'width: 400px; height: 300px; background-color: black');
+    // Frame 0 is decoded, but the page still shows the poster.
+    Object.defineProperty(video, 'readyState', { get: () => 4 });
+    Object.defineProperty(video, 'videoWidth', { get: () => 16 });
+    Object.defineProperty(video, 'videoHeight', { get: () => 9 });
+    pages[0]!.append(video);
+    app.updateFromHtml(pages);
+
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
     const page = testPage(app, 0) as Page;
     const canvas = page.newTemporaryCopy().getElement().querySelector('canvas')!;
+    expect(getContext).not.toHaveBeenCalled();
     expect(canvas.getAttribute('data-stf-poster')).toBe('https://cdn.example/still.jpg');
     expect(canvas.style.backgroundImage).toContain('https://cdn.example/still.jpg');
     expect(canvas.style.backgroundRepeat).toBe('no-repeat');
-    expect(canvas.style.backgroundColor).toBe('black');
+    expect(canvas.style.backgroundColor).toBe('rgb(0, 0, 0)');
     expect(canvas.style.width).toBe('400px');
     page.hideTemporaryCopy();
   });
 
-  test('iframe, embed and object are replaced by a sized box before the copy is attached', () => {
+  test('iframe, embed, object and audio become a sized box before the copy is attached', () => {
     const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
     pages[0]!.innerHTML =
-      '<p>text <iframe class="yt" data-token-id="e1" src="https://www.youtube.com/embed/x"></iframe></p>' +
-      '<embed src="a.swf"><object data="a.pdf"><embed src="fallback.pdf"></object>';
+      '<p>text <iframe class="yt" data-token-id="e1" style="width: 560px; height: 315px" src="https://www.youtube.com/embed/x"></iframe></p>' +
+      '<embed src="a.swf"><object data="a.pdf"><embed src="fallback.pdf"></object>' +
+      '<audio controls style="width: 300px; height: 54px" src="n.mp3"></audio>';
     const frame = pages[0]!.querySelector('iframe')!;
-    Object.defineProperty(frame, 'offsetWidth', { get: () => 560 });
-    Object.defineProperty(frame, 'offsetHeight', { get: () => 315 });
     app.updateFromHtml(pages);
 
     const attached: Element[] = [];
@@ -845,12 +880,12 @@ describe('video fold copy — no second player, no audio from the copy', () => {
 
     const page = testPage(app, 0) as Page;
     const clone = page.newTemporaryCopy().getElement();
-    observer
-      .takeRecords()
-      .forEach((r) => Array.from(r.addedNodes).forEach((n) => attached.push(n as Element)));
+    for (const r of observer.takeRecords()) {
+      for (const n of Array.from(r.addedNodes)) attached.push(n as Element);
+    }
     observer.disconnect();
 
-    expect(clone.querySelector('iframe, embed, object')).toBeNull();
+    expect(clone.querySelector('iframe, embed, object, audio')).toBeNull();
     // The clone was attached once, already free of embeds.
     expect(attached).toEqual([clone]);
     const box = clone.querySelector<HTMLElement>('div[data-stf-embed].yt')!;
@@ -858,7 +893,10 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     expect(box.style.display).toBe('inline-block');
     expect(box.style.width).toBe('560px');
     expect(box.style.height).toBe('315px');
-    expect(clone.querySelectorAll('[data-stf-embed]').length).toBeGreaterThanOrEqual(3);
+    // <audio controls> keeps its box instead of collapsing the layout.
+    const player = clone.querySelector<HTMLElement>('div[data-stf-embed][controls]')!;
+    expect(player.style.width).toBe('300px');
+    expect(clone.querySelectorAll('[data-stf-embed]').length).toBeGreaterThanOrEqual(4);
     expect(pages[0]!.querySelector('iframe')).toBe(frame);
     page.hideTemporaryCopy();
   });
@@ -870,8 +908,8 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     Object.defineProperty(video, 'readyState', { get: () => 2 });
     Object.defineProperty(video, 'videoWidth', { get: () => 16 });
     Object.defineProperty(video, 'videoHeight', { get: () => 9 });
-    Object.defineProperty(video, 'offsetWidth', { get: () => 160 });
-    Object.defineProperty(video, 'offsetHeight', { get: () => 90 });
+    video.style.width = '160px';
+    video.style.height = '90px';
     pages[0]!.append(video);
     app.updateFromHtml(pages);
 

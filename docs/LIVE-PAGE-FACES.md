@@ -26,19 +26,20 @@ A cloned `<video>` would be a second player: `cloneNode` copies `src`, and
 that alone starts a request, a decoder and, with `autoplay`, audio, even on a
 detached copy. The engine strips each copied media element (`src`,
 `autoplay`, `<source>`, then `load()`) and replaces each cloned `<video>` with
-a `<canvas data-stf-frame>` painted from the original's current frame via
-`drawImage`. The canvas carries the video's attributes (`class`, `style`, `id`,
-`data-*`; not `width` / `height`), its on-page box, and its `object-fit` /
-`object-position`, so it crops and letterboxes as the video did. Its backing
-store is the on-page size × `devicePixelRatio`, not the video's native
-resolution. If the original has no frame yet, the canvas paints the poster the
-original is displaying as its background, and records it in `data-stf-poster`.
-`<audio>` is removed from the clone.
+a `<canvas data-stf-frame>` showing what the page shows: the poster until the
+video has played, otherwise the current frame via `drawImage`. The canvas
+carries the video's attributes (`class`, `id`, `data-*`; not `width` /
+`height`) and its whole resolved style inline, so rules written against the
+`video` tag still position, size, round and fit it. Its backing store is the
+box × `devicePixelRatio`, not the video's native resolution, except under
+`object-fit: none` / `scale-down`, which paint the frame 1:1. A poster is
+painted as the canvas background from the URL the original is already
+displaying, and recorded in `data-stf-poster`.
 
-`<iframe>`, `<embed>` and `<object>` in the clone are replaced by an empty
-`<div data-stf-embed>` with the same attributes and on-page size before the
-clone is attached, so they never load a second time. The fold shows a blank
-box where the embed is.
+`<audio>`, `<iframe>`, `<embed>` and `<object>` in the clone are replaced by an
+empty `<div data-stf-embed>` with the same attributes and resolved style
+before the clone is attached, so they never load a second time. The fold
+shows a blank box where the embed or player is.
 
 A cloned `<canvas>` is **unsupported**: `cloneNode` does not copy pixels, and a
 snapshot is not taken (a tainted canvas cannot be painted anyway). Media inside

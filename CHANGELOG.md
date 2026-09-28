@@ -7,21 +7,24 @@ All notable changes to this monorepo will be documented in this file.
 ### Fixed — portrait fold copy and live-face order
 
 - **Media in the portrait clone.** A soft portrait turn replaces each cloned
-  `<video>` with a canvas of the original's current frame and removes cloned
-  `<audio>`. Before it is dropped, each copied media element loses `src`,
-  `autoplay` and its `<source>` children and is reloaded empty: `cloneNode`
-  copies `src`, which starts a fetch (and, with `autoplay`, playback) even on
-  a detached element. The copy therefore issues no second media request,
-  starts no second decoder, and plays no audio. The frame canvas carries the
-  video's attributes (`class`, `style`, `id`, `data-*`) and its on-page box,
-  `object-fit` and `object-position`. Its backing store is the layout size ×
-  `devicePixelRatio`, not the video's native resolution (a 4K frame no longer
-  allocates ~33 MB per turn). A video with no frame yet shows its poster as the
-  canvas background, from the URL the original is already displaying.
-  `<iframe>`, `<embed>` and `<object>` in the clone are replaced by an empty box
-  with the same attributes and size before the clone is attached, so they never
-  load a second time. A cloned `<canvas>` is unsupported (pixels are not
-  copied). Media inside a shadow root or started by a custom element's
+  `<video>` with a canvas showing what the page shows: the poster until the
+  video has played (the HTML "show poster" state), otherwise the current frame.
+  Before it is dropped, each copied media element loses `src`, `autoplay` and
+  its `<source>` children and is reloaded empty: `cloneNode` copies `src`,
+  which starts a fetch (and, with `autoplay`, playback) even on a detached
+  element. The copy therefore issues no second media request, starts no second
+  decoder, and plays no audio. The canvas carries the video's attributes
+  (`class`, `id`, `data-*`) and its whole resolved style inline, so layout from
+  rules written against the `video` tag (`position`, `inset`, `margin`,
+  `border-radius`, `object-fit`, …) survives the swap. Its backing store is the
+  box × `devicePixelRatio` in the video's aspect ratio, not the native
+  resolution (a 4K frame no longer allocates ~33 MB per turn); `object-fit:
+none` / `scale-down` keep the native resolution because they paint it 1:1.
+  `<audio>`, `<iframe>`, `<embed>` and `<object>` in the clone are replaced by
+  an empty box with the same attributes and resolved style before the clone is
+  attached, so nothing loads a second time and a visible `<audio controls>`
+  keeps its space. A cloned `<canvas>` is unsupported (pixels are not copied).
+  Media inside a shadow root or started by a custom element's
   `connectedCallback` is not handled. The original element is not paused,
   seeked, or reloaded. Landscape still folds the live leaf. A hard page still
   does not clone.

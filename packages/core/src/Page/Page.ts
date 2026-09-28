@@ -737,9 +737,14 @@ function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): void {
 
     if (copy instanceof HTMLMediaElement) silence(copy);
 
-    if (source instanceof HTMLVideoElement) copy.replaceWith(frameOf(source));
-    else if (copy instanceof HTMLAudioElement) copy.remove();
-    else copy.replaceWith(standIn(source, 'div', 'data-stf-embed'));
+    // Audio is boxed like an embed, not removed: `<audio controls>` has a
+    // box, and removing it collapsed the fold's layout (a hidden one resolves
+    // to `display: none` and still takes no room).
+    copy.replaceWith(
+      source instanceof HTMLVideoElement
+        ? frameOf(source)
+        : standIn(source, 'div', 'data-stf-embed'),
+    );
   }
 }
 
@@ -753,10 +758,13 @@ function silence(copy: HTMLMediaElement): void {
 
 /**
  * An inert box that takes `source`'s place in the page's layout. It carries
- * every attribute (so `class` / `style` / `id` rules and the host's `data-*`
- * still apply — PB-11 G1) except `width` / `height`, which on a canvas would
- * size the backing store, and it is pinned to the source's on-page size: a
- * canvas or a div has no intrinsic size of the source's to fall back on.
+ * every attribute (so the host's `data-*` survive — PB-11 G1) except `width` /
+ * `height`, which on a canvas would size the backing store, AND the source's
+ * whole resolved style inline. Rules written against the tag
+ * (`.bg video { position: absolute; inset: 0 }`) do not match a `<canvas>` or a
+ * `<div>`, so without the resolved style a full-bleed loop dropped into flow
+ * and pushed the page's text off the fold. The copy is a snapshot for one
+ * turn, so resolved values (`width: 332px`) are exactly what it should keep.
  */
 function standIn<K extends 'canvas' | 'div'>(
   source: HTMLElement,
@@ -771,66 +779,38 @@ function standIn<K extends 'canvas' | 'div'>(
   box.setAttribute(marker, '');
 
   const style = box.style;
-  // `inline` would collapse a div; an inline replaced element lays out as
-  // `inline-block`.
-  style.display = computed.display === 'inline' ? 'inline-block' : computed.display;
-  const width = source.offsetWidth;
-  const height = source.offsetHeight;
-  if (width > 0 && height > 0) {
-    style.boxSizing = 'border-box';
-    style.width = `${width}px`;
-    style.height = `${height}px`;
+  for (let i = 0; i < computed.length; i++) {
+    const name = computed.item(i);
+    style.setProperty(name, computed.getPropertyValue(name));
   }
+  // An inline replaced element sizes like `inline-block`; a `div` left
+  // `inline` would ignore the width and height it was just given.
+  if (computed.display === 'inline') style.display = 'inline-block';
   return box;
 }
 
 /**
- * The video's current frame, fitted the way the video fits it. The backing
- * store keeps the video's aspect ratio, so the copied `object-fit` /
- * `object-position` crop and letterbox exactly as the `<video>` did, and it is
- * capped at the on-page size times the device pixel ratio: a 4K frame used to
- * allocate ~33 MB and cost ~10 ms of `drawImage` at the start of every turn.
- * With no frame yet, the poster the original is showing is painted instead.
+ * The video as the page shows it. Before the first frame is played the page
+ * shows the poster (the HTML "show poster" state), so the copy paints that;
+ * otherwise it paints the current frame. The backing store keeps the video's
+ * aspect ratio, so the resolved `object-fit` / `object-position` crop and
+ * letterbox exactly as the `<video>` did, and for the scaling fits it is capped
+ * at the box times the device pixel ratio: a 4K frame used to allocate ~33 MB.
+ * `none` and `scale-down` draw the frame at its intrinsic size, so those keep
+ * the native resolution.
  */
 function frameOf(source: HTMLVideoElement): HTMLCanvasElement {
   const computed = getComputedStyle(source);
   const box = standIn(source, 'canvas', 'data-stf-frame', computed);
-  const style = box.style;
-  style.objectFit = computed.objectFit;
-  style.objectPosition = computed.objectPosition;
-
-  const width = source.offsetWidth;
-  const height = source.offsetHeight;
-  const frameWidth = source.videoWidth;
-  const frameHeight = source.videoHeight;
-  const ctx =
-    source.readyState >= 2 && frameWidth > 0 && frameHeight > 0 && width > 0 && height > 0
-      ? box.getContext('2d')
-      : null;
-
-  if (ctx !== null) {
-    const fit = Math.max(width / frameWidth, height / frameHeight) * (window.devicePixelRatio || 1);
-    const scale = Math.min(1, fit);
-    box.width = Math.max(1, Math.round(frameWidth * scale));
-    box.height = Math.max(1, Math.round(frameHeight * scale));
-    // `drawImage` on a video does not throw for readiness or for a
-    // cross-origin source (that only taints the canvas); guarded anyway,
-    // because a throw here would escape a pointer handler mid-turn.
-    try {
-      ctx.drawImage(source, 0, 0, box.width, box.height);
-    } catch {
-      // A blank box still makes no request.
-    }
-    return box;
-  }
-
+  const fit = computed.objectFit;
   const poster = source.poster;
-  if (poster !== '') {
+
+  if (poster !== '' && source.played.length === 0 && source.currentTime === 0) {
     box.setAttribute('data-stf-poster', poster);
     // The original is displaying this URL, so it is a cache hit, not the
-    // second request the copy exists to avoid. `poster` sizes like the frame.
-    // Longhands: the shorthand would also reset a host's background-color.
-    const fit = computed.objectFit;
+    // second request the copy exists to avoid. Longhands, so a host
+    // background-color survives.
+    const style = box.style;
     style.backgroundImage = `url(${JSON.stringify(poster)})`;
     style.backgroundPosition = computed.objectPosition;
     style.backgroundSize =
@@ -842,6 +822,35 @@ function frameOf(source: HTMLVideoElement): HTMLCanvasElement {
             ? 'cover'
             : 'contain';
     style.backgroundRepeat = 'no-repeat';
+    return box;
+  }
+
+  const width = parseFloat(computed.width);
+  const height = parseFloat(computed.height);
+  const frameWidth = source.videoWidth;
+  const frameHeight = source.videoHeight;
+  const ctx =
+    source.readyState >= 2 && frameWidth > 0 && frameHeight > 0 && width > 0 && height > 0
+      ? box.getContext('2d')
+      : null;
+  if (ctx === null) return box;
+
+  const scale =
+    fit === 'none' || fit === 'scale-down'
+      ? 1
+      : Math.min(
+          1,
+          Math.max(width / frameWidth, height / frameHeight) * (window.devicePixelRatio || 1),
+        );
+  box.width = Math.max(1, Math.round(frameWidth * scale));
+  box.height = Math.max(1, Math.round(frameHeight * scale));
+  // `drawImage` on a video does not throw for readiness or for a cross-origin
+  // source (that only taints the canvas); guarded anyway, because a throw here
+  // would escape a pointer handler mid-turn.
+  try {
+    ctx.drawImage(source, 0, 0, box.width, box.height);
+  } catch {
+    // A blank box still makes no request.
   }
   return box;
 }
