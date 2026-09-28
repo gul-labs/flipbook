@@ -101,8 +101,8 @@ Measured from the published artifacts, both terser-minified, zero runtime depend
 
 Larger than upstream because of RTL, reduced motion, typed errors, validation,
 and the portrait back-curl fix. This is not a smaller drop-in replacement; it is
-a maintained one. CI ceilings on the packed HTML engine are **68 kB raw /
-16.5 kB brotli / 18.6 kB gzip** (see [`docs/QUALITY.md`](./docs/QUALITY.md)).
+a maintained one. CI ceilings on the packed HTML engine are **69 kB raw /
+16.8 kB brotli / 19 kB gzip** (see [`docs/QUALITY.md`](./docs/QUALITY.md)).
 
 Reproduce with `npm pack page-flip@2.0.7` and `pnpm build && pnpm size`.
 

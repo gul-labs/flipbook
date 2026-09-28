@@ -22,16 +22,28 @@ spread turns fold the live leaf; only portrait soft leaves are copied.
 
 ### Media in the copy
 
-Before this fix, a cloned `<video>` was a second player (a second request,
-a second decoder, and its own audio). The engine now replaces each cloned
-`<video>` with a
-`<canvas data-stf-frame>` painted from the original's current frame via
-`drawImage`. If the original has no frame yet, the canvas is a blank box of
-the same size and records `data-stf-poster` when a poster URL was set — it
-does not fetch that URL. `<audio>` is removed from the clone. A cloned
-`<canvas>` is **unsupported**: `cloneNode` does not copy pixels, and a
-snapshot is not taken (a tainted canvas cannot be painted anyway). The
-original element is not paused, seeked, or reloaded.
+A cloned `<video>` would be a second player: `cloneNode` copies `src`, and
+that alone starts a request, a decoder and, with `autoplay`, audio, even on a
+detached copy. The engine strips each copied media element (`src`,
+`autoplay`, `<source>`, then `load()`) and replaces each cloned `<video>` with
+a `<canvas data-stf-frame>` painted from the original's current frame via
+`drawImage`. The canvas carries the video's attributes (`class`, `style`, `id`,
+`data-*`; not `width` / `height`), its on-page box, and its `object-fit` /
+`object-position`, so it crops and letterboxes as the video did. Its backing
+store is the on-page size × `devicePixelRatio`, not the video's native
+resolution. If the original has no frame yet, the canvas paints the poster the
+original is displaying as its background, and records it in `data-stf-poster`.
+`<audio>` is removed from the clone.
+
+`<iframe>`, `<embed>` and `<object>` in the clone are replaced by an empty
+`<div data-stf-embed>` with the same attributes and on-page size before the
+clone is attached, so they never load a second time. The fold shows a blank
+box where the embed is.
+
+A cloned `<canvas>` is **unsupported**: `cloneNode` does not copy pixels, and a
+snapshot is not taken (a tainted canvas cannot be painted anyway). Media inside
+a shadow root, and custom elements that start playback when connected, are not
+handled. The original element is not paused, seeked, or reloaded.
 
 The frame is frozen at clone time. The original keeps playing underneath.
 Landscape does not clone, so a spread turn keeps the live element.
@@ -78,14 +90,18 @@ for (const el of container.querySelectorAll(`[data-token-id="${CSS.escape(id)}"]
 
 The lookup returns **two** elements while a portrait curl is up: the original
 and the clone (`data-stf-clone`), because the clone is in the same container.
-When `read` fires — a completed turn or `cancelTurn()` — the count is one.
+When `flip` or `read` fires — a completed turn or `cancelTurn()` — the count
+is one: a settling turn drops its copy before it commits.
 The engine does not rewrite attributes on clone descendants, so a toggle set
 after the copy survives until the clone is removed.
 
 `changeState` emits `user_fold` or `flipping` **before** the clone is inserted,
 and `read` **after** it is removed, on a completed turn and on `cancelTurn()`.
 A host that sets `data-flipping` from `user_fold` / `flipping` therefore turns
-transitions off before the fold face exists. Clear `data-reading` on `read`:
+transitions off before the fold face exists. With `foldCornerOnHover` (the
+default), a hover peel announces `fold_corner` before it copies the leaf, and a
+drag that continues from that peel announces `user_fold` with the copy already
+present, so set `data-flipping` on every state that is not `read`. Clear `data-reading` on `read`:
 the fold face is already gone, which is what keeps a turn chained from that
 listener from losing its own copy.
 

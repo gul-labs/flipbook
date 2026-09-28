@@ -20,8 +20,9 @@ tarball (`npm pack page-flip@2.0.7`).
 | `@gullabs/flipbook-core` HTML engine (early post-canvas) |    56,015 | 15,395 | 13,734 |
 
 Re-measure with `pnpm size` before quoting current numbers. Owner-approved
-ceilings as of 2026-09-27: **68 kB raw / 16.5 kB brotli / 18.6 kB gzip**
-(portrait media snapshot; previously 66 / 16.1 / 18.2 on 2026-09-08).
+ceilings as of 2026-09-28: **69 kB raw / 16.8 kB brotli / 19.0 kB gzip**
+(portrait-clone media hardening; 68 / 16.5 / 18.6 on 2026-09-27, 66 / 16.1 /
+18.2 on 2026-09-08).
 
 **The old "≤ 35 kB minified" target is retired.** Upstream itself is 44 kB;
 that target asked this fork to be smaller while doing more.
