@@ -3,6 +3,9 @@
 **Consumer requests (requirements, justification, degrade-if-missing):**
 [**requests/PUDDLEBEND-REQUESTS.md**](./requests/PUDDLEBEND-REQUESTS.md) — start
 here when triaging what Puddlebend actually asked for.
+[**requests/VIDEO-PAGES-REQUIREMENTS.md**](./requests/VIDEO-PAGES-REQUIREMENTS.md) —
+video-page use cases, the measured portrait clone defect, and design options
+awaiting an owner decision (2026-09-27).
 
 Maintainer priority notes: [TRIAGED-BACKLOG.md](./TRIAGED-BACKLOG.md).  
 This page is the **checklist** of open items beside the locked 3.0 surface
