@@ -34,7 +34,13 @@ function makeFlip(options?: Options) {
       this.spread = index;
     },
     getFlippingPage() {
-      return { id: 'flip', getDensity: () => 'soft', setDrawingDensity() {} };
+      // A live leaf, not a portrait copy: Flip drops a copy through its owner.
+      return {
+        id: 'flip',
+        getDensity: () => 'soft',
+        setDrawingDensity() {},
+        getCopyOwner: () => null,
+      };
     },
     getBottomPage() {
       return { id: 'bottom', getDensity: () => 'soft', setDrawingDensity() {} };

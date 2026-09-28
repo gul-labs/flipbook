@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { FlippingState } from '@gullabs/flipbook-core';
 import { installPointerCaptureShims, makeHtmlBook } from './html-book-fixture';
 import { Page } from '../src/Page/Page';
-import { testPage } from './engine-access';
+import { testFlip, testPage } from './engine-access';
 import { isInteractivePointerTarget } from '../src/interactive';
 
 const books: Array<{ destroy: () => void }> = [];
@@ -234,7 +234,11 @@ describe('G6 — changeState brackets the clone', () => {
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).toBeNull();
   });
 
-  test('cancelTurn announces read while the clone is still there, then removes it', () => {
+  // PB-11 G6 asks for `read` after the clone is removed on BOTH paths. A
+  // cancelled fold face has nothing left to clear once it is gone, and keeping
+  // it through the listener let a turn chained from that `read` lose its own
+  // copy (see the chaining tests below).
+  test('cancelTurn announces read after the clone is removed', () => {
     const { book: app, pages } = book({
       pageCount: 4,
       flippingTime: 800,
@@ -243,16 +247,9 @@ describe('G6 — changeState brackets the clone', () => {
     pages[0]!.innerHTML = '<span data-token-id="x">line</span>';
     app.updateFromHtml(pages);
     const order = watch(app);
-    const seenDuringRead: number[] = [];
-    app.on('changeState', ({ data }) => {
-      if (data.state !== 'read') return;
-      seenDuringRead.push(app.getBlockElement().querySelectorAll('[data-stf-clone]').length);
-    });
 
-    // A synchronous rAF runs the frame `cancelAnimation` queues before
-    // `abandon` emits read. Installing it before the drag lets that frame
-    // actually schedule: a frame already pending makes `scheduleFrame` no-op,
-    // and the assertion would stay green while the fold face was swept.
+    // Synchronous frames for the whole drag, so the clone has been drawn and
+    // booked in the renderer's shown set before the cancel.
     const realRaf = globalThis.requestAnimationFrame;
     globalThis.requestAnimationFrame = (cb) => {
       cb(0);
@@ -261,20 +258,16 @@ describe('G6 — changeState brackets the clone', () => {
     try {
       dragToFold(app);
       expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
-      app.cancelTurn();
+      expect(app.cancelTurn()).toBe(true);
     } finally {
       globalThis.requestAnimationFrame = realRaf;
     }
 
-    expect(order[0]).toBe('user_fold:0');
-    // While the read listener runs the fold face is still there. Once
-    // cancelTurn returns, that listener has returned and the copy is gone.
-    expect(order).toContain('read:1');
-    expect(seenDuringRead).toContain(1);
+    expect(order).toEqual(['user_fold:0', 'read:0']);
     expect(app.getBlockElement().querySelectorAll('[data-stf-clone]')).toHaveLength(0);
   });
 
-  test('flipNext announces flipping before the clone exists', () => {
+  test('flipNext announces flipping before the clone, and a cancel before any frame removes it', () => {
     const { book: app, pages } = book({
       pageCount: 4,
       flippingTime: 800,
@@ -285,10 +278,164 @@ describe('G6 — changeState brackets the clone', () => {
     const order = watch(app);
 
     expect(app.flipNext()).toBe(true);
-    expect(order[0]).toBe('flipping:0');
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).not.toBeNull();
-    app.cancelTurn();
-    expect(order).toContain('read:1');
+    expect(app.cancelTurn()).toBe(true);
+    expect(order).toEqual(['flipping:0', 'read:0']);
+    expect(app.getBlockElement().querySelector('[data-stf-clone]')).toBeNull();
+  });
+});
+
+/** Own the rAF queue so a turn can be stopped between two specific frames. */
+function installRafQueue(): { flush: (ticks?: number) => void; restore: () => void } {
+  const queued: FrameRequestCallback[] = [];
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    queued.push(cb);
+    return queued.length;
+  }) as typeof globalThis.requestAnimationFrame;
+  globalThis.cancelAnimationFrame = (() => {
+    queued.length = 0;
+  }) as typeof globalThis.cancelAnimationFrame;
+  let clock = 0;
+  return {
+    flush(ticks = 200) {
+      for (let i = 0; i < ticks && queued.length > 0; i += 1) {
+        const batch = queued.splice(0, queued.length);
+        clock += 16;
+        for (const cb of batch) cb(clock);
+      }
+    },
+    restore() {
+      globalThis.requestAnimationFrame = realRaf;
+      globalThis.cancelAnimationFrame = realCancel;
+    },
+  };
+}
+
+/** The mover the running turn draws: the element the reader actually sees fold. */
+function moverElement(app: ReturnType<typeof book>['book']): HTMLElement | null {
+  // Private slot, read-only: the turn's own mover, not a DOM query that a
+  // stale detached clone could satisfy.
+  const flip = testFlip(app) as unknown as { flippingPage: Page | null } | null;
+  return flip?.flippingPage?.getElement() ?? null;
+}
+
+describe('a turn chained onto a finished portrait turn keeps its own copy', () => {
+  test('flipNext during a snap-back: the new copy survives the next frame', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({ pageCount: 4, flippingTime: 400, foldCornerOnHover: false });
+      raf.flush();
+      const block = app.getBlockElement();
+      const rect = app.getBoundsRect();
+      const y = rect.top + rect.height - 8;
+
+      // A short drag, drawn once so the first copy is booked as shown, then
+      // released on the right half: a snap-back, not a turn.
+      pointer('pointerdown', block, rect.left + rect.width - 6, y);
+      pointer('pointermove', block, rect.left + rect.width - 20, y);
+      pointer('pointermove', block, rect.left + rect.width - 30, y);
+      raf.flush(1);
+      pointer('pointerup', block, rect.left + rect.width - 30, y);
+      raf.flush(1);
+      expect(app.getState()).not.toBe(FlippingState.READ);
+
+      // Finishes the snap-back (its copy is dropped before `read`), then
+      // copies the SAME leaf again for the new turn.
+      expect(app.flipNext()).toBe(true);
+      raf.flush(1);
+      expect(moverElement(app)?.isConnected).toBe(true);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(1);
+
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(1);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  test('a read listener that turns after cancelTurn gets a visible fold', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({ pageCount: 4, flippingTime: 400, foldCornerOnHover: false });
+      raf.flush();
+      const block = app.getBlockElement();
+      expect(app.flipNext()).toBe(true);
+      raf.flush(2);
+
+      let chained = false;
+      app.on('changeState', ({ data }) => {
+        if (data.state !== 'read' || chained) return;
+        chained = true;
+        expect(app.flipNext()).toBe(true);
+      });
+      expect(app.cancelTurn()).toBe(true);
+      expect(chained).toBe(true);
+
+      raf.flush(1);
+      expect(moverElement(app)?.isConnected).toBe(true);
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(1);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  test('a cancel with nothing folded does not reach into a later turn', () => {
+    const raf = installRafQueue();
+    try {
+      const { book: app } = book({ pageCount: 6, flippingTime: 400, foldCornerOnHover: false });
+      raf.flush();
+      const block = app.getBlockElement();
+      const rect = app.getBoundsRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      // A pointer down with no fold: `cancelTurn` has work (the gesture) but
+      // the book is already READ, so no `read` is emitted.
+      pointer('pointerdown', block, cx, cy);
+      expect(app.cancelTurn()).toBe(true);
+      pointer('pointerup', block, cx, cy);
+
+      let chained = false;
+      app.on('changeState', ({ data }) => {
+        if (data.state !== 'read' || chained) return;
+        chained = true;
+        app.flipNext();
+      });
+      expect(app.flipNext()).toBe(true);
+      for (let i = 0; i < 200 && !chained; i += 1) raf.flush(1);
+      expect(chained).toBe(true);
+
+      raf.flush(1);
+      expect(moverElement(app)?.isConnected).toBe(true);
+      raf.flush();
+      expect(app.getCurrentPageIndex()).toBe(2);
+      expect(block.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
+describe('a copy that cannot be made hands the state back', () => {
+  test('flipNext on a detached leaf is rejected and the book stays READ', () => {
+    const { book: app, pages } = book({
+      pageCount: 4,
+      flippingTime: 400,
+      foldCornerOnHover: false,
+    });
+    const rejected: string[] = [];
+    app.on('turnRejected', ({ data }) => rejected.push(data.code ?? ''));
+    pages[0]!.remove();
+
+    expect(app.flipNext()).toBe(false);
+    expect(rejected).toEqual(['DETACHED_PAGE']);
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(testFlip(app)!.getCalculation()).toBeNull();
     expect(app.getBlockElement().querySelector('[data-stf-clone]')).toBeNull();
   });
 });

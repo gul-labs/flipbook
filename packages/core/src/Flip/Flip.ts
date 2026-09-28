@@ -404,7 +404,16 @@ export class Flip {
   private installFlippingPages(): void {
     if (this.flippingPage !== null) return;
     if (this.calc === null) return;
-    this.flippingPage = this.app[GET_COLLECTION]().getFlippingPage(this.turnDirection);
+    try {
+      this.flippingPage = this.app[GET_COLLECTION]().getFlippingPage(this.turnDirection);
+    } catch (err: unknown) {
+      // The turn was already announced, so a failed copy (a detached leaf,
+      // `DETACHED_PAGE`) has to hand the state back. Left alone the book sat
+      // in `flipping` / `user_fold` with a live `calc` it could never draw,
+      // and `UI` kept cancelling touch scrolling over it.
+      this.abandon();
+      throw err;
+    }
   }
 
   /**
@@ -925,10 +934,7 @@ export class Flip {
         // Drop the portrait copy before READ. Clearing the slot alone leaves
         // the node in the tree until the next frame's delta clear, so a
         // `changeState('read')` listener still saw the clone.
-        const mover = this.flippingPage;
-        if (mover !== null && typeof mover.getCopyOwner === 'function') {
-          mover.getCopyOwner()?.hideTemporaryCopy();
-        }
+        this.flippingPage?.getCopyOwner()?.hideTemporaryCopy();
         this.render.setFlippingPage(null);
         this.render.clearShadow();
 
