@@ -115,8 +115,11 @@ function InteractiveBook() {
       <p style={{ margin: '0 0 12px', color: '#555', maxWidth: 520 }}>
         <code>usePageFlip</code> is uncontrolled — never pass <code>page={'{book.page}'}</code>. A{' '}
         <code>&lt;button&gt;</code> on the leaf does not start a fold, and neither does a{' '}
-        <code>&lt;video controls&gt;</code>. A video without controls still swipes. Lock is three
-        live knobs, not a freeze of <code>page</code>.
+        <code>&lt;video controls&gt;</code>, <code>&lt;audio controls&gt;</code>,{' '}
+        <code>&lt;iframe&gt;</code>, <code>&lt;embed&gt;</code>, or <code>&lt;object&gt;</code>. A
+        video without controls still swipes. A portrait curl freezes video as a canvas and strips
+        audio; play and pause stay in this component. Lock is three live knobs, not a freeze of{' '}
+        <code>page</code>.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <button type="button" onClick={() => book.flipPrev()} disabled={turning || !book.canGoPrev}>

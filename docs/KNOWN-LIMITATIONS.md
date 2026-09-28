@@ -71,8 +71,14 @@ During a curl the fold face is a `cloneNode(true)` snapshot. Later mutations to
 the original do not propagate. Highlight via a **document stylesheet** or an
 **attribute toggle** on stable token ids, not per-word React re-renders that
 swap page nodes. `Range` and the Highlight API do not cover the clone. A
-cloned `<video>` is replaced with a frozen canvas; `<audio>` is stripped. Full
-contract: [LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
+cloned `<video>` is replaced with a frozen canvas (no second request,
+decoder, or audio); `<audio>` is stripped. A cloned `<canvas>` is
+unsupported. With `respectInteractiveContent`, `video[controls]`,
+`audio[controls]`, `iframe`, `embed`, and `object` do not start a fold; a
+`<video>` without controls still swipes. A completed turn emits `read` after
+the clone is removed. `cancelTurn()` emits `read` while the clone is still
+present and removes it when that listener returns. Full contract:
+[LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
 
 ### Playback is the host's job
 

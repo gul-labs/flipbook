@@ -45,7 +45,9 @@ export default function Page() {
       <h1 style={{ marginTop: 0 }}>Next.js App Router</h1>
       <p style={{ color: '#555', maxWidth: 520 }}>
         SSR emits <code>data-flipbook-placeholder</code> with <strong>no leaves</strong>. You own
-        no-JS content. After hydration the book curls — real <code>flippingTime</code>, not instant.
+        no-JS content. After hydration the book curls — real <code>flippingTime</code>, not instant.{' '}
+        <code>controls</code>, <code>lazyRadius</code>, and controlled <code>page</code> are
+        React-only; core <code>PageFlip</code> ignores them.
       </p>
       <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>
         {hydrated ? 'hydrated' : 'ssr'} · pages {shown} of {book.pageCount} · {book.orientation}

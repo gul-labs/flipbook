@@ -22,8 +22,9 @@ spread turns fold the live leaf; only portrait soft leaves are copied.
 
 ### Media in the copy
 
-A cloned `<video>` would be a second player (a second request, a second
-decoder, and its own audio). The engine replaces each cloned `<video>` with a
+Before this fix, a cloned `<video>` was a second player (a second request,
+a second decoder, and its own audio). The engine now replaces each cloned
+`<video>` with a
 `<canvas data-stf-frame>` painted from the original's current frame via
 `drawImage`. If the original has no frame yet, the canvas is a blank box of
 the same size and records `data-stf-poster` when a poster URL was set — it

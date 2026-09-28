@@ -4,8 +4,10 @@
 [**requests/PUDDLEBEND-REQUESTS.md**](./requests/PUDDLEBEND-REQUESTS.md) — start
 here when triaging what Puddlebend actually asked for.
 [**requests/VIDEO-PAGES-REQUIREMENTS.md**](./requests/VIDEO-PAGES-REQUIREMENTS.md) —
-video-page use cases, the measured portrait clone defect, and design options
-awaiting an owner decision (2026-09-27).
+video-page use cases and the pre-fix portrait clone measurement. Options A,
+B, and D shipped on this branch (frozen video frame, interactive selector,
+host-owned playback). The file records the ask; it is not the current
+contract — see [LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
 
 Maintainer priority notes live on the triage branch
 (`docs/TRIAGED-BACKLOG.md`); this checklist is the open list.  

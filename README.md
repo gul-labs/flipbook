@@ -201,6 +201,17 @@ A vanilla or WebView host that copies `lazyRadius: 2` into `new PageFlip` still
 mounts every leaf. Window the DOM in the host. React docs below still describe
 `lazyRadius` for `HTMLFlipBook`.
 
+A portrait curl freezes each `<video>` as a canvas of the frame at clone time
+and strips `<audio>`. That copy does not start a second request, decoder, or
+audio track. A cloned `<canvas>` is unsupported. Landscape folds the live
+element. With `respectInteractiveContent` (default on), a pointer that starts
+on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or `object` does
+not start a fold; a `<video>` without controls still swipes. Core does not
+play, pause, or load media the host created. A completed turn emits `read`
+after the clone is removed. `cancelTurn()` emits `read` while the clone is
+still there and removes it when that listener returns. Full contract:
+[docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md).
+
 ---
 
 ## Docs

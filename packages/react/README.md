@@ -61,29 +61,30 @@ export function Book() {
 
 ## Common props and events
 
-| Prop / event            | Role                                                                                                                                                       |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `width` / `height`      | Required page size                                                                                                                                         |
-| `page` + `onPageChange` | Controlled page (optional `pageTransition`: `'animate'` \| `'instant'`)                                                                                    |
-| `onLoaded` / `onReady`  | Initial / once-per-engine snapshot (`page`, `pageCount`, `visiblePages`, …)                                                                                |
-| `onTurnProgress`        | Fold progress `0…1` while animating or dragging. Silent on instant / reduced-motion turns and on hover peel. Settle with `onPageChange` / `onChangeState`. |
-| `lazyRadius`            | React-only window. Core `PageFlip` ignores it; a vanilla host must window the DOM itself.                                                                  |
-| `onTurnRejected`        | Turn did not start (`reason`, `direction`, `targetPage`, `landedOn`)                                                                                       |
-| `controls`              | `'auto'` \| `'visible'` \| `'none'`                                                                                                                        |
-| `hardCovers`            | Cover leaves shown alone, hard density                                                                                                                     |
-| `pageBackground`        | Paper color (any CSS color; opacity is structural)                                                                                                         |
-| `injectStyles`          | Default `true`; set `false` under strict CSP and import core `style.css`                                                                                   |
+| Prop / event            | Role                                                                                                                                                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `width` / `height`      | Required page size                                                                                                                                                                                                      |
+| `page` + `onPageChange` | Controlled page (optional `pageTransition`: `'animate'` \| `'instant'`)                                                                                                                                                 |
+| `onLoaded` / `onReady`  | Initial / once-per-engine snapshot (`page`, `pageCount`, `visiblePages`, …)                                                                                                                                             |
+| `onTurnProgress`        | Fold progress `0…1` while animating or dragging. Silent on instant / reduced-motion turns and on hover peel. Settle with `onPageChange` / `onChangeState`.                                                              |
+| `lazyRadius`            | React-only window. Core `PageFlip` ignores it; a vanilla host must window the DOM itself.                                                                                                                               |
+| `onTurnRejected`        | Turn did not start (`reason`, `direction`, `targetPage`, `landedOn`)                                                                                                                                                    |
+| `controls`              | `'auto'` \| `'visible'` \| `'none'`                                                                                                                                                                                     |
+| `hardCovers`            | Cover leaves shown alone, hard density                                                                                                                                                                                  |
+| `pageBackground`        | Paper color (any CSS color; opacity is structural)                                                                                                                                                                      |
+| `injectStyles`          | Default `true`; set `false` under strict CSP and import core `style.css`                                                                                                                                                |
+| Page media              | Portrait curl freezes each `<video>` as a canvas and strips `<audio>`. `video[controls]`, `audio[controls]`, `iframe`, `embed`, and `object` do not start a fold. Play and pause stay the host's job — see core README. |
 
 Handle methods (`ref` → `FlipBookHandle`):
 
-| Method                  | Role                                                |
-| ----------------------- | --------------------------------------------------- |
-| `flipNext` / `flipPrev` | Animate relative turn (`boolean`)                   |
-| `flipToPage(n)`         | Animate to page (`boolean`)                         |
-| `turnToPage(n)`         | Instant jump (`boolean`)                            |
-| `cancelTurn()`          | Abandon in-flight turn without committing           |
-| `destroy()`             | Tear down the engine **and** retire the React shell |
-| `pageFlip()`            | Escape hatch → core `PageFlip \| null`              |
+| Method                  | Role                                                                                                                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flipNext` / `flipPrev` | Animate relative turn (`boolean`)                                                                                                                                                      |
+| `flipToPage(n)`         | Animate to page (`boolean`)                                                                                                                                                            |
+| `turnToPage(n)`         | Instant jump (`boolean`)                                                                                                                                                               |
+| `cancelTurn()`          | Abandon in-flight turn without committing. The `read` event still sees the portrait clone; it is gone when the call returns. A completed turn emits `read` after the clone is removed. |
+| `destroy()`             | Tear down the engine **and** retire the React shell                                                                                                                                    |
+| `pageFlip()`            | Escape hatch → core `PageFlip \| null`                                                                                                                                                 |
 
 Queries such as `getPageCount` / `getVisiblePages` live on the **engine**
 (`pageFlip()?.getPageCount()`) or on `usePageFlip()` state — not on the handle.
