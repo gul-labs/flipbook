@@ -244,9 +244,10 @@ export class Page {
       this.copiedElement.setAttribute('data-stf-clone', '');
 
       // Media state is not an attribute. A cloned <video>/<audio> is a second
-      // player. Replace video with a frozen canvas of the original's current
-      // frame; strip audio; snapshot a same-origin canvas. Never pause, seek,
-      // or reload the original.
+      // player, and a cloned <iframe>/<embed>/<object> a second document.
+      // Silence the copies, show a <video> as a canvas of what the page shows,
+      // and box the rest. A cloned <canvas> is not repainted (unsupported).
+      // Never pause, seek, or reload the original.
       freezeCloneMedia(this.element, this.copiedElement);
 
       parent.appendChild(this.copiedElement);

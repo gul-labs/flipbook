@@ -201,14 +201,18 @@ A vanilla or WebView host that copies `lazyRadius: 2` into `new PageFlip` still
 mounts every leaf. Window the DOM in the host. React docs below still describe
 `lazyRadius` for `HTMLFlipBook`.
 
-A portrait curl freezes each `<video>` as a canvas of the frame at clone time
-and strips `<audio>`. That copy does not start a second request, decoder, or
-audio track. A cloned `<canvas>` is unsupported. Landscape folds the live
+A portrait curl freezes each `<video>` as a canvas of what the page shows (the
+poster, or the current frame) and replaces `<audio>`, `<iframe>`, `<embed>` and
+`<object>` with an empty box of the same size. That copy does not start a
+second request, decoder, player or audio track. A cloned `<canvas>` is unsupported. Landscape folds the live
 element. With `respectInteractiveContent` (default on), a pointer that starts
 on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or `object` does
 not start a fold; a `<video>` without controls still swipes. Core does not
-play, pause, or load media the host created. `read` fires after the portrait
-clone is removed, on a completed turn and on `cancelTurn()`. Full contract:
+play, pause, or load media the host created: pausing on turn start is the
+host's job, and YouTube / Vimeo embeds work with caveats — see
+[docs/MEDIA-PAGES.md](./docs/MEDIA-PAGES.md) and `examples/media-pages`.
+`read` fires after the portrait clone is removed, on a completed turn and on
+`cancelTurn()`. Full contract:
 [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md).
 
 ---
@@ -221,6 +225,7 @@ clone is removed, on a completed turn and on `cancelTurn()`. Full contract:
 | [docs/API-CONTRACT.md](./docs/API-CONTRACT.md)            | Locked 3.0 public surface                     |
 | [docs/KNOWN-LIMITATIONS.md](./docs/KNOWN-LIMITATIONS.md)  | Accepted constraints (not silent bugs)        |
 | [docs/LIVE-PAGE-FACES.md](./docs/LIVE-PAGE-FACES.md)      | What stays live on a page during a curl       |
+| [docs/MEDIA-PAGES.md](./docs/MEDIA-PAGES.md)              | Video, audio and YouTube pages; playback      |
 | [docs/TODO.md](./docs/TODO.md)                            | Open additive backlog                         |
 | [docs/README.md](./docs/README.md)                        | Full docs index                               |
 | [SUPPORT.md](./SUPPORT.md) · [SECURITY.md](./SECURITY.md) | Help and vulnerability reporting              |

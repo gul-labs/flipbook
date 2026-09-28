@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Media pages — host-owned playback</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #ece7dc;
+        color: #1b1712;
+        font:
+          15px/1.45 system-ui,
+          sans-serif;
+      }
+      body {
+        padding: 16px;
+      }
+      h1 {
+        font-size: 1.15rem;
+        margin: 0 0 6px;
+      }
+      p.lede {
+        max-width: 60ch;
+        margin: 0 0 12px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 0 0 12px;
+      }
+      .toolbar button {
+        padding: 6px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #status {
+        font:
+          13px/1.3 ui-monospace,
+          monospace;
+        white-space: pre-wrap;
+        margin: 12px 0 0;
+      }
+      #host {
+        max-width: 860px;
+      }
+      .page {
+        box-sizing: border-box;
+        padding: 20px;
+        background: #fffaf0;
+        overflow: hidden;
+      }
+      .page h2 {
+        margin: 0 0 10px;
+        font-size: 1.05rem;
+      }
+      /* The full-bleed loop is laid out by a TAG rule on purpose: the fold copy
+         still has to put it here, under the text. */
+      .bleed {
+        position: relative;
+        padding: 0;
+      }
+      .bleed video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .bleed .over {
+        position: relative;
+        margin: 20px;
+        padding: 12px;
+        background: rgb(255 255 255 / 0.85);
+        border-radius: 8px;
+      }
+      .inset video,
+      .inset iframe {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border: 0;
+        background: #000;
+      }
+      .inset audio {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Media pages</h1>
+    <p class="lede">
+      The engine never plays or pauses your media. <code>media.ts</code> does, from the engine's
+      events: sound pauses when a turn starts, resumes if the turn is abandoned, and everything on a
+      page that leaves the screen stops. Muted loops start when their page arrives (not under
+      reduced motion). See <code>docs/MEDIA-PAGES.md</code>.
+    </p>
+    <div class="toolbar">
+      <button type="button" id="unlock">Enable sound</button>
+      <button type="button" id="prev">Previous</button>
+      <button type="button" id="next">Next</button>
+    </div>
+    <div id="host">
+      <div id="book">
+        <div class="page">
+          <h2>Media pages</h2>
+          <p>Turn the page. Each spread shows one media case.</p>
+        </div>
+        <div class="page bleed" data-case="loop">
+          <video muted loop playsinline preload="metadata" data-media="loop"></video>
+          <div class="over">
+            <h2>Living illustration</h2>
+            <p>
+              A muted loop under the text. It keeps playing through a turn; the fold shows a frozen
+              frame.
+            </p>
+          </div>
+        </div>
+        <div class="page inset" data-case="clip">
+          <h2>Clip with sound</h2>
+          <video controls playsinline preload="metadata" data-media="clip">
+            <track
+              kind="captions"
+              srclang="en"
+              label="English"
+              default
+              src="data:text/vtt,WEBVTT%0A%0A00:00.000%20--%3E%2059:59.000%0AA%20steady%20tone."
+            />
+          </video>
+          <p>
+            Start it, then turn the page from the margin: the sound stops as the turn starts. Drag
+            and let go without turning, and it resumes.
+          </p>
+        </div>
+        <div class="page inset" data-case="audio">
+          <h2>Narration</h2>
+          <audio controls data-media="audio"></audio>
+          <p>An <code>&lt;audio controls&gt;</code> keeps its place on the fold.</p>
+        </div>
+        <div class="page inset" data-case="embed">
+          <h2>Embedded player</h2>
+          <div data-media="embed">
+            <p>
+              Add <code>?youtube=&lt;video id&gt;</code> to the URL to embed a YouTube player here.
+            </p>
+          </div>
+          <p>
+            Drags cannot start on the player; turn from the margins. The portrait fold shows an
+            empty box where it is.
+          </p>
+        </div>
+        <div class="page">
+          <h2>The end</h2>
+          <p>Everything on the pages you left is paused.</p>
+        </div>
+      </div>
+    </div>
+    <pre id="status" aria-live="polite"></pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

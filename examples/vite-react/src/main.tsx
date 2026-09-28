@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HTMLFlipBook, usePageFlip, type PageState } from '@gullabs/react-flipbook';
+import { MediaBook } from './MediaBook';
 
 /**
  * What a reader app actually reaches for:
@@ -255,6 +256,7 @@ function App() {
       <PictureBook />
       <InteractiveBook />
       <ControlledBook />
+      <MediaBook />
     </main>
   );
 }

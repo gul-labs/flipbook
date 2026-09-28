@@ -81,12 +81,16 @@ removed, on a completed turn and on `cancelTurn()`. Full contract:
 
 ### Playback is the host's job
 
-Play a media element when its leaf is in `getVisiblePages()`, pause it
-otherwise, and show a poster under `prefers-reduced-motion`. `respectReducedMotion`
-makes the **turn** instant. It does not pause, mute, or replace page content.
-WCAG 2.2.2 pause/stop/hide for autoplaying media is the host's control; the
-clone is already `inert`. Core does not call `play`, `pause`, or `load` on
-media the host created.
+Core does not call `play`, `pause`, or `load` on media the host created
+([ADR 0004](./adr/0004-media-pages.md)). Pause audible media when a turn starts
+(`changeState` → `user_fold` / `flipping`, which fires before the portrait copy
+is taken), resume it if the turn is abandoned, and pause everything on pages
+that leave `getVisiblePages()` (on `flip`, which also covers `turnToPage`).
+Start only muted loops automatically, and not under `prefers-reduced-motion`;
+never start sound on its own (WCAG 1.4.2). `respectReducedMotion` makes the
+**turn** instant. It does not pause, mute, or replace page content. The full
+recipe, YouTube / Vimeo embedding and platform notes:
+[MEDIA-PAGES.md](./MEDIA-PAGES.md).
 
 ## Deliberately rejected
 

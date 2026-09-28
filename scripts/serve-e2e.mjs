@@ -1,6 +1,7 @@
 /**
- * Start both example previews after `pnpm build` + example builds.
- * Playwright waits on 4173; the live-HTML fixture is on 4174.
+ * Start the example previews after `pnpm build` + example builds.
+ * Playwright waits on 4173; the live-HTML fixture is on 4174; the media-pages
+ * example is on 4175.
  */
 import { spawn } from 'node:child_process';
 
@@ -13,6 +14,11 @@ const kids = [
   spawn(
     'pnpm',
     ['--filter', 'example-mobile-reader', 'preview', '--host', '127.0.0.1', '--port', '4174'],
+    { stdio: 'inherit' },
+  ),
+  spawn(
+    'pnpm',
+    ['--filter', 'example-media-pages', 'preview', '--host', '127.0.0.1', '--port', '4175'],
     { stdio: 'inherit' },
   ),
 ];

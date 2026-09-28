@@ -52,6 +52,9 @@ Landscape does not clone, so a spread turn keeps the live element.
 Marking a video leaf `data-density="hard"` avoids the copy entirely and loses
 the soft curl. That is a host fallback, not the supported path.
 
+Playback (pausing on turn start, embeds, autoplay rules) is the host's:
+[MEDIA-PAGES.md](./MEDIA-PAGES.md).
+
 ## Supported: token-id stylesheet highlighting
 
 Keep stable identifiers on the tokens (`data-token-id="sample-en-page3-word8"`).
