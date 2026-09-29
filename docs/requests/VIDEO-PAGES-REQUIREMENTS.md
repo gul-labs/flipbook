@@ -14,20 +14,20 @@ This document does three things:
 
 It is written to the same bar as [PUDDLEBEND-REQUESTS.md](./PUDDLEBEND-REQUESTS.md): every ask carries why we need it, what happens if it is not supported, and the workaround today. Priority labels are ours, not the ship bar.
 
-**Puddlebend's own position, stated up front so nobody schedules "Puddlebend needs video":** our current iOS reader phase excludes video by decision. Video pages are the next product line (animated adaptations of the existing books), and we want the engine question settled before that line starts, not during it. Only one item below is a defect in the shipped engine (§1.3); everything else is future capability.
+**Puddlebend's own position, stated up front so nobody schedules "Puddlebend needs video":** our current iOS reader phase excludes video by decision. Video pages are the next product line (animated adaptations of the existing books), and we want the engine question settled before that line starts, not during it. The shipped engine has two video-related defects for that phase: portrait clones restart (§1.3), and a drag on native video controls can fold the page (§1.4). Everything else is future capability or host policy.
 
 ---
 
 ## 0. Summary for the owner
 
-| Finding                                                                                                                                                                                                       | Evidence                  | Consequence                                                                                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| A `<video>` on an open page plays normally, in both spread and single-page modes.                                                                                                                             | §1.1                      | Nothing to do at rest.                                                                                                             |
-| In **spread (landscape)** mode a turn folds the real leaf, so a playing video stays live through the curl.                                                                                                    | §1.2                      | Nothing to do for desk/tablet-landscape readers.                                                                                   |
-| In **single-page (portrait)** mode the fold face is a `cloneNode(true)` copy. A cloned `<video>` is a **new player**: it re-requests the file, starts at 0, plays concurrently, and would play its own audio. | §1.3, screenshot          | Visible frame jump on every phone page turn of a video page; double download; double audio if unmuted. **This is the one defect.** |
-| A drag that starts on a `<video controls>` starts a page turn.                                                                                                                                                | §1.4                      | Scrubbing the timeline turns the page.                                                                                             |
-| Arrow keys on a focused `<video controls>` do **not** turn the page.                                                                                                                                          | §1.4                      | Already correct.                                                                                                                   |
-| Hard pages never clone.                                                                                                                                                                                       | `Page.newTemporaryCopy()` | A "video leaves are hard" recipe avoids the defect with zero engine change, at the cost of the soft curl.                          |
+| Finding                                                                                                                                                                                                                                             | Evidence                  | Consequence                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A `<video>` on an open page plays normally, in both spread and single-page modes.                                                                                                                                                                   | §1.1                      | Nothing to do at rest.                                                                                                                        |
+| In **spread (landscape)** mode a turn folds the real leaf, so a playing video stays live through the curl.                                                                                                                                          | §1.2                      | Nothing to do for desk/tablet-landscape readers.                                                                                              |
+| In **single-page (portrait)** mode the fold face is a `cloneNode(true)` copy. A cloned `<video>` is a **new player**: it re-requests the file and starts at 0. Whether an unmuted copy plays audio depends on autoplay policy and was not measured. | §1.3, screenshot          | Visible frame jump on every phone page turn of a video page; a second download and decoder. Potential duplicate audio needs a separate repro. |
+| A drag that starts on a `<video controls>` starts a page turn.                                                                                                                                                                                      | §1.4                      | Scrubbing the timeline turns the page; this is the second current defect for a video-enabled reader.                                          |
+| Arrow keys on a focused `<video controls>` do **not** turn the page.                                                                                                                                                                                | §1.4                      | Already correct.                                                                                                                              |
+| Hard pages never clone.                                                                                                                                                                                                                             | `Page.newTemporaryCopy()` | A "video leaves are hard" recipe avoids the defect with zero engine change, at the cost of the soft curl.                                     |
 
 The decisions we ask the owner to make are listed in §6. The shortest defensible path is: fix the clone (§5, option A), add `video[controls]`/`audio[controls]` to the interactive selector (option B), document a host-owned playback recipe (option D) — and refuse the rest until a consumer brings evidence.
 
@@ -58,7 +58,7 @@ Both engines: the muted autoplay loop plays (`currentTime` advanced 0.56 → 1.3
 
 ![Portrait mid-turn: page beneath at 00:00:05.067 (frame 152), fold copy at 00:00:00.633 (frame 19)](./video-pages/webkit-portrait-midturn.png)
 
-What a reader sees: the page they were watching jumps back to the start on the folding face, then jumps forward again when the turn settles. What the device pays: a second decoder and a second download for the length of the turn. What happens with an unmuted video (allowed after a user gesture): the copy inherits `autoplay` and plays its own audio track over the original's — two soundtracks for the length of the turn. We did not measure the unmuted case in the probe because headless engines refuse unmuted autoplay; the attribute copy is visible in the log and the behaviour follows from it.
+What a reader sees: the page they were watching jumps back to the start on the folding face, then jumps forward again when the turn settles. What the device pays: a second decoder and a second download for the length of the turn. An unmuted copy inherits `autoplay` and may try to play a second audio track. We did not measure whether a browser permits that playback after a gesture, so duplicate audio is a risk to test, not an observed result.
 
 This is a gap in the [LIVE-PAGE-FACES.md](../LIVE-PAGE-FACES.md) contract rather than a violation of it: that document promises the clone is a snapshot of attributes and text, and it is. A `<video>` element's _state_ (position, playback, decoded frame) is not an attribute, so the snapshot cannot carry it. Images, fonts and text have no such state; video, audio, `<canvas>` and CSS animations do (see §3.1 for the non-video cousins).
 
@@ -232,14 +232,14 @@ Numbered so the owner can accept or refuse each one independently.
 ### 3.1 Fold fidelity (the copy must show what the page shows)
 
 - **R-1** During a turn or hover peel in single-page mode, the folding face of a video leaf shows the **same frame** the original was showing when the fold began (±1 frame). It does not restart, does not show the poster unless the original was showing the poster, and does not show a black box.
-- **R-2** The copy causes **no additional network request** and **no additional decoder**. Measurable: zero `.mp4` requests attributable to a turn; at most one `HTMLMediaElement` per source in `document`.
+- **R-2** The copy causes **no additional network request** and **no additional decoder**. Measurable: zero `.mp4` requests attributable to a turn and no additional `HTMLMediaElement` for a source due to cloning. Separate original leaves may intentionally use the same source.
 - **R-3** The copy **never plays audio**. It must not inherit a live `autoplay`, and if it contains a media element at all that element is `muted` and paused.
 - **R-4** The same guarantee holds for `<audio>` (no double playback), and the behaviour for `<canvas>`, `<iframe>` and CSS/SMIL animation is **specified** in LIVE-PAGE-FACES.md even if it is "restarts, unsupported".
 - **R-5** The fix covers **every** clone path: committed turns, cancelled drags (snap-back), `foldCornerOnHover`, and `cancelTurn()`.
 
 ### 3.2 Playback lifecycle (who plays, who pauses)
 
-- **R-6** A video on a leaf that is not in `visiblePages` should not be decoding. Whether the engine does this or the host does it from `flip`/`visiblePages` is the owner's call (§5, option D). Today the vanilla engine mounts every leaf; a 32-page book with a loop on each page holds 32 decoders.
+- **R-6** A video on a leaf that is not in `visiblePages` should not be decoding. Whether the engine does this or the host does it from `flip`/`visiblePages` is the owner's call (§5, option D). Today the vanilla engine mounts every leaf; a 32-page book with autoplay loops may start many off-screen decoders, subject to browser limits and eviction.
 - **R-7** Resume policy is a host decision (resume from where it was vs restart), so the engine must not reset `currentTime` or fire `load()` on anything it did not create.
 - **R-8** Preload of the next/previous leaf's video is a host decision; the engine must not add `preload` attributes.
 - **R-9** Nothing in core touches `HTMLMediaElement` playback of the **original** element. Core may touch only the elements it creates (clones). This keeps FB-X1 ("no audio in core") true.
@@ -282,14 +282,14 @@ Puddlebend's book contract has `Illustration { assetId, box, description }`. A l
 
 ## 4. Acceptance tests we would expect
 
-1. **Fold parity (portrait):** fixture leaf with `testsrc2` timecode; screenshot at 35 % of `flippingTime`; the fold's burned-in frame counter is within 1 frame of the original's. Chromium + WebKit.
-2. **No second request:** network log has exactly one request per media source across load + 3 turns + 3 hover peels.
-3. **No second player:** `document.querySelectorAll('video').length` unchanged mid-turn, or the extra element is a `<canvas>`/`<img>` marked `data-stf-clone`.
+1. **Fold fidelity (portrait):** fixture leaf with `testsrc2` timecode; at clone creation the snapshot matches the original's frame within 1 frame. At 35 % of `flippingTime`, it still shows that frozen frame while the original may have advanced. Chromium + WebKit. Continuous parity would require pausing the original or a live folding video and is outside option A.
+2. **No clone-triggered request:** compare media requests against the same original playing for the same elapsed time without turns; 3 turns + 3 hover peels add none. Ordinary range or loop requests from the original are allowed.
+3. **No second player:** `document.querySelectorAll('video').length` does not increase because of a turn; a `<canvas>`/`<img>` substitute, if used, lives inside the `data-stf-clone` leaf.
 4. **No audio from the copy:** if a media element exists in the clone, `muted === true && paused === true`.
 5. **Controls scrub does not fold:** drag on the timeline of `video[controls]` leaves state `read`.
 6. **Full-bleed loop still swipes:** drag on a controls-less video reaches `user_fold`.
 7. **Keyboard:** `ArrowRight` on a focused `video[controls]` does not change page index (regression guard for §1.4).
-8. **Cancelled drag / snap-back:** parity holds and no request is made.
+8. **Cancelled drag / snap-back:** the copy keeps the frame captured at clone creation and makes no clone-triggered request.
 9. **Reduced motion:** with `respectReducedMotion` the turn is instant and no clone is observable; the host poster path is exercised in the example.
 10. **Landscape unchanged:** spread turn with a playing video shows the live element (no clone) — pins today's correct behaviour.
 11. **Frame budget:** FB-C1 fixture variant with a playing 1080p loop.

@@ -110,6 +110,28 @@ All four existed since 3.0.
   motion, WCAG pause is the host's) sits next to the known limitations.
   `respectReducedMotion` does not cover page content.
 
+### Fixed — interrupted swipe state and probe hygiene
+
+- `Flip.fold()`: a BACK swipe at page zero could cancel
+  an in-flight forward turn and then be refused, leaving the book in `flipping`
+  with no animation or calculation. A recognized swipe skips `stopMove()`, so
+  only a later turn recovered it. Refused folds now return to `read` immediately.
+- `Flip.runFlip()`: a rightward swipe could briefly fold
+  FORWARD, then request a refused BACK turn at page zero. The book reported
+  `user_fold` with no calculation and kept an orphaned visual clone. A refused
+  turn now cancels that drag, removes its clone and returns to `read`.
+- `docs/requests/VIDEO-PAGES-REQUIREMENTS.md:285-286`: a frozen video snapshot
+  cannot stay within one frame of a playing original 35% into a turn, and a
+  browser may make several legitimate range requests for one video. The
+  acceptance tests now check clone-time fidelity and requests caused by turns.
+- `docs/requests/video-pages/probe.mjs:29`: the browser probe was linted as
+  Node source, so its Playwright callbacks' `window` and `document` globals
+  failed `quality:ci`. They are declared for that file's browser callbacks.
+- `docs/requests/video-pages/probe.mjs:88`: a navigation failure printed an
+  error but left the browser open and never failed the command, making probe
+  failures look inconclusive or successful. It now closes on failure and sets
+  a nonzero exit status.
+
 ### Fixed — mobile branch adversarial audit
 
 - **Rotation during a turn:** wrapper geometry and the spread cursor now agree

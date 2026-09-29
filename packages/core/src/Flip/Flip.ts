@@ -135,7 +135,14 @@ export class Flip {
     // READ/FOLD_CORNER guard then failed forever (corner hover dead), and
     // `UI.onPointerMove`'s `!== READ` test stayed true, so every touchmove
     // called `preventDefault()` and mobile scrolling over the book stopped.
-    if (this.calc === null && !this.start(globalPos)) return;
+    if (this.calc === null && !this.start(globalPos)) {
+      // The refused direction may have interrupted a running turn above.
+      // `reset()` clears its calculation but does not change FLIPPING, and a
+      // recognized swipe releases through userStop(..., true), which skips
+      // stopMove(). Hand the state back here, including for that release path.
+      this.setState(FlippingState.READ);
+      return;
+    }
 
     const generation = this.turnGeneration;
 

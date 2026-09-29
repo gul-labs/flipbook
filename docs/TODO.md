@@ -9,8 +9,8 @@ B, and D shipped on this branch (frozen video frame, interactive selector,
 host-owned playback). The file records the ask; it is not the current
 contract — see [LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
 
-Maintainer priority notes live on the triage branch
-(`docs/TRIAGED-BACKLOG.md`); this checklist is the open list.  
+Maintainer priority notes: [TRIAGED-BACKLOG.md](./TRIAGED-BACKLOG.md); this
+checklist is the open list.  
 This page is the **checklist** of open items beside the locked 3.0 surface
 ([API-CONTRACT.md](./API-CONTRACT.md)).
 
