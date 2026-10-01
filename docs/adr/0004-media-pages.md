@@ -1,9 +1,10 @@
 # ADR 0004 — Media in leaves: the engine copies safely, the host owns playback
 
-**Status:** Proposed, 2026-09-28. The engine half (options A and B below) is
-implemented and tested on `feat/request-plans-2026-09-27`; the playback stance
-restates the standing "no audio in core" decision (PB-10 / FB-X1). Awaiting
-owner acceptance.
+**Status:** Accepted by the owner, 2026-09-30 (proposed 2026-09-28). The
+engine half (options A and B below) shipped in 3.2.2; the playback stance
+restates the standing "no audio in core" decision (PB-10 / FB-X1). The
+resulting bundle ceilings (69 / 16.8 / 19.0 kB) were approved in the same
+decision.
 
 **Context:** Puddlebend's
 [VIDEO-PAGES-REQUIREMENTS.md](../requests/VIDEO-PAGES-REQUIREMENTS.md) (17

@@ -901,6 +901,49 @@ describe('video fold copy — no second player, no audio from the copy', () => {
     page.hideTemporaryCopy();
   });
 
+  test.each([
+    ['video', 'canvas'],
+    ['audio', 'div'],
+    ['iframe', 'div'],
+    ['embed', 'div'],
+    ['object', 'div'],
+  ])('a <%s> that IS the page element is not copied live', (tag, replacement) => {
+    const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
+    const root = document.createElement(tag);
+    root.setAttribute(tag === 'object' ? 'data' : 'src', 'x.bin');
+    root.setAttribute('data-leaf', 'media-root');
+    root.setAttribute('style', 'width: 200px; height: 100px');
+    if (tag === 'video' || tag === 'audio') root.setAttribute('autoplay', '');
+    pages[0] = root;
+    app.updateFromHtml(pages);
+    const load = vi.mocked(HTMLMediaElement.prototype.load);
+
+    const page = testPage(app, 0) as Page;
+    const clone = page.newTemporaryCopy().getElement();
+
+    // `querySelectorAll` never matches the element it is called on, so a media
+    // page root used to be cloned as the live element it was.
+    expect(clone.tagName.toLowerCase()).toBe(replacement);
+    expect(clone.isConnected).toBe(true);
+    // Still the engine's marker, inert and hidden from assistive tech.
+    expect(clone.getAttribute('data-stf-clone')).toBe('');
+    expect(clone.getAttribute('aria-hidden')).toBe('true');
+    expect(clone.hasAttribute('inert')).toBe(true);
+    expect(clone.style.pointerEvents).toBe('none');
+    expect(clone.dataset.leaf).toBe('media-root');
+    // The original is untouched, and never reloaded.
+    expect(root.getAttribute('data-leaf')).toBe('media-root');
+    expect(load.mock.contexts).not.toContain(root);
+    if (tag === 'video' || tag === 'audio') {
+      // The discarded detached copy had its fetch aborted, as a descendant's is.
+      expect(load.mock.contexts).toHaveLength(1);
+      expect((load.mock.contexts[0] as HTMLMediaElement).isConnected).toBe(false);
+    }
+
+    page.hideTemporaryCopy();
+    expect(clone.isConnected).toBe(false);
+  });
+
   test('a ready frame is drawn onto the clone canvas and a failed draw does not throw', () => {
     const { book: app, pages } = book({ pageCount: 4, flippingTime: 0 });
     const video = document.createElement('video');

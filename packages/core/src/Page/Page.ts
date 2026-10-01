@@ -213,7 +213,17 @@ export class Page {
         );
       }
 
-      this.copiedElement = this.element.cloneNode(true) as HTMLElement;
+      // Media state is not an attribute. A cloned <video>/<audio> is a second
+      // player, and a cloned <iframe>/<embed>/<object> a second document.
+      // Silence the copies, show a <video> as a canvas of what the page shows,
+      // and box the rest — the page element itself included, since a media
+      // element is a legal leaf. A cloned <canvas> is not repainted
+      // (unsupported). Never pause, seek, or reload the original. This runs
+      // first so the markers below land on the element that is actually kept.
+      this.copiedElement = freezeCloneMedia(
+        this.element,
+        this.element.cloneNode(true) as HTMLElement,
+      );
       this.copiedElement.style.backgroundColor = foldFill(this.render.getSettings().pageBackground);
 
       // RB6. `cloneNode(true)` duplicates the CONSUMER's subtree into the live
@@ -242,13 +252,6 @@ export class Page {
       this.copiedElement.setAttribute('aria-hidden', 'true');
       this.copiedElement.setAttribute('inert', '');
       this.copiedElement.setAttribute('data-stf-clone', '');
-
-      // Media state is not an attribute. A cloned <video>/<audio> is a second
-      // player, and a cloned <iframe>/<embed>/<object> a second document.
-      // Silence the copies, show a <video> as a canvas of what the page shows,
-      // and box the rest. A cloned <canvas> is not repainted (unsupported).
-      // Never pause, seek, or reload the original.
-      freezeCloneMedia(this.element, this.copiedElement);
 
       parent.appendChild(this.copiedElement);
 
@@ -724,11 +727,20 @@ const LIVE_EMBEDS = 'video,audio,iframe,embed,object';
  * starts a fetch (and, with `autoplay`, playback) on a detached copy, which
  * `replaceWith` / `remove` do not stop. `silence` aborts it.
  *
+ * `querySelectorAll` never matches the element it is called on, so a page whose
+ * own element is media is replaced as a whole. Returns the element to keep: the
+ * clone, or the stand-in that took its place.
+ *
  * Never touches the original: no `currentTime`, `pause`, or `load`.
  */
-function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): void {
+function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): HTMLElement {
+  if (original.matches(LIVE_EMBEDS)) {
+    if (clone instanceof HTMLMediaElement) silence(clone);
+    return stillOf(original);
+  }
+
   const sources = original.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
-  if (sources.length === 0) return;
+  if (sources.length === 0) return clone;
   const copies = clone.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
 
   for (let i = 0; i < sources.length; i++) {
@@ -737,16 +749,21 @@ function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): void {
     if (source === undefined || copy === undefined) continue;
 
     if (copy instanceof HTMLMediaElement) silence(copy);
-
-    // Audio is boxed like an embed, not removed: `<audio controls>` has a
-    // box, and removing it collapsed the fold's layout (a hidden one resolves
-    // to `display: none` and still takes no room).
-    copy.replaceWith(
-      source instanceof HTMLVideoElement
-        ? frameOf(source)
-        : standIn(source, 'div', 'data-stf-embed'),
-    );
+    copy.replaceWith(stillOf(source));
   }
+  return clone;
+}
+
+/**
+ * What a live-media element looks like in the copy. Audio is boxed like an
+ * embed, not removed: `<audio controls>` has a box, and removing it collapsed
+ * the fold's layout (a hidden one resolves to `display: none` and still takes
+ * no room).
+ */
+function stillOf(source: HTMLElement): HTMLElement {
+  return source instanceof HTMLVideoElement
+    ? frameOf(source)
+    : standIn(source, 'div', 'data-stf-embed');
 }
 
 /** Abort the load the copied `src` started, and keep the copy from playing. */

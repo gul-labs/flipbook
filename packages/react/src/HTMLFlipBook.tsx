@@ -788,7 +788,12 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         eventHandlersRef.current.onChangeOrientation?.(e.data);
       });
       flip.on('changeState', (e: WidgetEvent<FlipbookEventMap['changeState']>) => {
-        if (e.data.state === 'read') {
+        // Not while the effect is inside its own `flipToPage`: that call
+        // commits the turn it is retargeting first, and the `read` it emits
+        // belongs to the OUTGOING turn. Taking it for the new one's end cleared
+        // `controlledTurn` and queued a retry, which re-issued the same target
+        // and committed the animation it had just started.
+        if (e.data.state === 'read' && applyingControlled.current === null) {
           const target = controlledTurn.current;
           controlledTurn.current = null;
           // Abandoned short of its page: nothing else re-runs the effect,
@@ -1180,6 +1185,10 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
               targetPage: controlledPage,
               landedOn: engine.getPageCount() > 0 ? engine.getCurrentPageIndex() : null,
             });
+          } else if (!engine.isAnimating()) {
+            // An instant turn (`flippingTime: 0`, reduced motion) reached its
+            // `read` inside the call, which the handler skipped.
+            controlledTurn.current = null;
           }
         } else {
           engine.turnToPage(controlledPage);

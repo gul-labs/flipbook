@@ -134,6 +134,35 @@ describe('controlled page animates and settles on the newest value', () => {
     }
   });
 
+  test('a change made mid-turn starts a new animation instead of snapping to it', async () => {
+    const raf = installRafQueue();
+    try {
+      const { handle, api } = mountControlled();
+      await waitFor(() => expect(handle.current?.pageFlip()?.isReady()).toBe(true));
+      raf.flush();
+
+      act(() => api.setPage(1));
+      raf.flush(2);
+      const engine = handle.current!.pageFlip()!;
+      expect(engine.getState()).toBe('flipping');
+
+      // Retargeting commits the turn to 1 inside `flipToPage`, and that
+      // outgoing turn's `read` must not be mistaken for the new turn ending.
+      act(() => api.setPage(3));
+      raf.flush(2);
+
+      // Two frames into a 400 ms turn: still turning, not already on 3.
+      expect(engine.getState()).toBe('flipping');
+      expect(engine.getCurrentPageIndex()).not.toBe(3);
+
+      raf.flush();
+      expect(engine.getCurrentPageIndex()).toBe(3);
+      expect(api.seen[api.seen.length - 1]).toBe(3);
+    } finally {
+      raf.restore();
+    }
+  });
+
   test('a controlled turn cancelled by a live size change is re-issued', async () => {
     const raf = installRafQueue();
     try {
