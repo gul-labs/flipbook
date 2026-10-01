@@ -1159,7 +1159,7 @@ export class Render {
    *
    * @param direction
    */
-  public setPageRect(pageRect: RectPoints): void {
+  public setPageRect(pageRect: RectPoints | null): void {
     this.requestFrame();
 
     this.pageRect = pageRect;
@@ -1671,9 +1671,13 @@ export class Render {
       removeClass(page.getElement(), '--shown');
 
       // Temporary-copy trap: the mover is the CLONE; cleanup runs on the owner.
+      // Only while that clone is still the owner's copy. A completed turn drops
+      // its copy before READ, and a turn chained from that READ clones the
+      // same leaf again before this frame; hiding through the owner here
+      // detached the NEW copy, and the chained turn animated invisibly.
       const owner = page.getCopyOwner();
       if (owner !== null) {
-        owner.hideTemporaryCopy();
+        if (owner.getTemporaryCopy() === page) owner.hideTemporaryCopy();
       } else if (
         page.getTemporaryCopy() !== null &&
         page.getTemporaryCopy() !== this.flippingPage

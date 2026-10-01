@@ -8,9 +8,10 @@ body:
       value: |
         The 3.0 public surface is locked (`docs/API-CONTRACT.md`). Additive
         ideas are welcome; breaking changes need a strong case and an owner
-        decision. Check [`ROADMAP.md`](https://github.com/gul-labs/flipbook/blob/main/ROADMAP.md)
-        and [`docs/TODO.md`](https://github.com/gul-labs/flipbook/blob/main/docs/TODO.md)
-        first.
+        decision. Check open consumer asks in
+        [`docs/requests/PUDDLEBEND-REQUESTS.md`](https://github.com/gul-labs/flipbook/blob/main/docs/requests/PUDDLEBEND-REQUESTS.md),
+        then [`ROADMAP.md`](https://github.com/gul-labs/flipbook/blob/main/ROADMAP.md)
+        and [`docs/TODO.md`](https://github.com/gul-labs/flipbook/blob/main/docs/TODO.md).
 
   - type: dropdown
     id: package

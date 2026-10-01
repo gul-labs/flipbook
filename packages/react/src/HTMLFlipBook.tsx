@@ -274,10 +274,19 @@ function wrapChildren(
       // no host type to match, so that case still remounts; the escape is to
       // give the page a host element of its own.
       const type = typeof keyed?.type === 'string' ? keyed.type : 'div';
+      // ...and the page's own `className` / `style`. The engine adds its
+      // classes (`stf__item`, `--soft`, `--shown`) to this same node with
+      // `classList`; a placeholder without `className` made React rewrite the
+      // `class` attribute on the way in AND out of the window, wiping them —
+      // the `.stf__item::before` paper layer included. Equal props mean React
+      // never touches the attribute.
+      const own = (keyed?.props ?? {}) as { className?: unknown; style?: unknown };
 
       list.push(
         createElement(type, {
           key,
+          className: own.className,
+          style: own.style,
           'data-flipbook-lazy': '1',
           'aria-hidden': 'true',
           ref: collect(index),
@@ -731,6 +740,22 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
      */
     const firstControlledApply = useRef(true);
     /**
+     * The page a controlled ANIMATED turn is heading for, from the moment the
+     * effect issues it until `read`. Two things read it: the effect, so a
+     * re-run for the same target does not re-issue (and so snap) the turn in
+     * flight, and the `read` handler, so a turn the engine abandoned (a live
+     * resize) is issued again instead of leaving prop and book apart.
+     */
+    const controlledTurn = useRef<number | null>(null);
+    /**
+     * Set while the effect itself calls `flipToPage` / `turnToPage`. A turn
+     * already in flight is committed first, synchronously, and its `flip`
+     * reports a page the prop has moved past; forwarding it made
+     * `onPageChange` feed that older page back into the consumer's state.
+     */
+    const applyingControlled = useRef<number | null>(null);
+    const [controlledRetry, setControlledRetry] = useState(0);
+    /**
      * When the last real page turn happened, and how many engines this
      * component has built — together they detect the URL-sync footgun: a
      * consumer feeding `searchParams` into `initialPage` remounts the engine
@@ -753,6 +778,8 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         lastFlipAt.current = Date.now();
         setEnginePage(e.data.page);
         setPageCount(e.data.pageCount);
+        const target = applyingControlled.current;
+        if (target !== null && !flip.getVisiblePages().includes(target)) return;
         eventHandlersRef.current.onPageChange?.(e.data);
       });
       flip.on('changeOrientation', (e: WidgetEvent<FlipbookEventMap['changeOrientation']>) => {
@@ -761,6 +788,20 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         eventHandlersRef.current.onChangeOrientation?.(e.data);
       });
       flip.on('changeState', (e: WidgetEvent<FlipbookEventMap['changeState']>) => {
+        // Not while the effect is inside its own `flipToPage`: that call
+        // commits the turn it is retargeting first, and the `read` it emits
+        // belongs to the OUTGOING turn. Taking it for the new one's end cleared
+        // `controlledTurn` and queued a retry, which re-issued the same target
+        // and committed the animation it had just started.
+        if (e.data.state === 'read' && applyingControlled.current === null) {
+          const target = controlledTurn.current;
+          controlledTurn.current = null;
+          // Abandoned short of its page: nothing else re-runs the effect,
+          // because no dependency changed. Re-assert the prop.
+          if (target !== null && !flip.getVisiblePages().includes(target)) {
+            setControlledRetry((n) => n + 1);
+          }
+        }
         eventHandlersRef.current.onChangeState?.(e.data);
       });
       flip.on('ready', (e: WidgetEvent<FlipbookEventMap['ready']>) => {
@@ -1110,6 +1151,12 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
         return;
       }
 
+      // Already turning there. The effect re-runs whenever the consumer
+      // re-renders — inline children are a new `pages` identity every time —
+      // and re-issuing `flipToPage` committed the turn in flight at once: a
+      // controlled book with ordinary children snapped instead of animating.
+      if (controlledTurn.current === controlledPage && engine.isAnimating()) return;
+
       // D14. ANIMATE by default.
       //
       // The controlled path called `turnToPage` (instant) while the ref's
@@ -1122,23 +1169,33 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       const animate = pageTransition === 'animate' && !firstControlledApply.current;
       firstControlledApply.current = false;
 
+      applyingControlled.current = controlledPage;
       try {
         if (animate) {
+          // Before the call: an instant turn reaches `read` inside it.
+          controlledTurn.current = controlledPage;
           // MIN-10. A superseded turn used to vanish: `flip` returned void, so
           // the effect saw no change, did not re-run, and the book rested
           // somewhere the prop had not asked for with nothing reported.
           if (!engine.flipToPage(controlledPage)) {
+            controlledTurn.current = null;
             eventHandlersRef.current.onTurnRejected?.({
               reason: 'superseded',
               direction: null,
               targetPage: controlledPage,
               landedOn: engine.getPageCount() > 0 ? engine.getCurrentPageIndex() : null,
             });
+          } else if (!engine.isAnimating()) {
+            // An instant turn (`flippingTime: 0`, reduced motion) reached its
+            // `read` inside the call, which the handler skipped.
+            controlledTurn.current = null;
           }
         } else {
           engine.turnToPage(controlledPage);
         }
       } catch (error: unknown) {
+        applyingControlled.current = null;
+        controlledTurn.current = null;
         // Only the engine refusing the page is a navigation error. A consumer
         // handler that throws, or a broken renderer, must not be relabelled as
         // "invalid page" and hidden.
@@ -1185,7 +1242,8 @@ export const HTMLFlipBook = forwardRef<FlipBookHandle | null, Omit<HTMLFlipBookP
       //
       // With this, `page` without `onPageChange` is a genuinely locked book and
       // `page` + `onPageChange` round-trips.
-    }, [controlledPage, pages, enginePage, pageTransition]);
+      applyingControlled.current = null;
+    }, [controlledPage, pages, enginePage, pageTransition, controlledRetry]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
       if (!useKeyboard) return;

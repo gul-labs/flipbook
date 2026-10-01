@@ -767,16 +767,14 @@ describe('lazy mounting', () => {
    * paper. (The old `renderOnlyPageLengthChange` prop is gone; the window must
    * still track the live page under plain `lazyRadius`.)
    *
-   * PRODUCT-BUG (2026-08-30): any `lazyRadius={1}` mount in jsdom currently
-   * OOMs the vitest worker (infinite re-render suspected in the lazy-window
-   * effect once `visiblePages` joined BookSnapshot / the binding). Reproduced
-   * alone with a two-line mount of five pages + lazyRadius=1 — no flip needed.
-   * Unskip when the binding stops looping; do NOT weaken the assertion.
-   * Historical BUG-1: lazyRadius infinite re-render / heap exhaustion.
+   * Historical PRODUCT-BUG (2026-08-30): a `lazyRadius={1}` mount exhausted
+   * the vitest worker (infinite re-render in the lazy-window effect once
+   * `visiblePages` joined BookSnapshot). Fixed. These tests stay as the
+   * revert-proof regression — do not weaken the assertion.
    */
   test('the lazy window still advances when the page turns', async () => {
     // Controlled page (not usePageFlip) — the contract under test is the
-    // window, not the hook. Still OOMs today; kept as the revert target.
+    // window, not the hook. Kept as the revert target for the 2026-08-30 fix.
     const ref = { current: null as FlipBookHandle | null };
     function Harness() {
       const [page, setPage] = useState(0);
@@ -1562,7 +1560,8 @@ describe('lazy mounting keeps page identity (RB3)', () => {
     ));
   }
 
-  // PRODUCT-BUG: lazyRadius mount OOMs the worker — see lazy mounting above.
+  // Historical PRODUCT-BUG 2026-08-30 — see lazy mounting above. Kept as a
+  // revert-proof regression for the fixed lazy window.
   test('crossing the lazy window boundary does not rebuild the collection', async () => {
     const onPagesChanged = vi.fn();
 
@@ -1624,7 +1623,7 @@ describe('lazy mounting keeps page identity (RB3)', () => {
 describe('RB7 — the lazy window covers the whole next spread', () => {
   useMeasuredLayout();
 
-  // PRODUCT-BUG: lazyRadius mount OOMs the worker — see lazy mounting above.
+  // Historical PRODUCT-BUG 2026-08-30 — see lazy mounting above.
   test('landscape lazyRadius=1 mounts BOTH leaves of the adjacent spread', async () => {
     blockSize = LANDSCAPE_BLOCK;
     const ref = createRef<FlipBookHandle>();
@@ -1659,7 +1658,7 @@ describe('RB7 — the lazy window covers the whole next spread', () => {
     });
   });
 
-  // PRODUCT-BUG: lazyRadius mount OOMs the worker — see lazy mounting above.
+  // Historical PRODUCT-BUG 2026-08-30 — see lazy mounting above.
   test('the window is still bounded — a spread two away stays lazy', async () => {
     blockSize = LANDSCAPE_BLOCK;
     const ref = createRef<FlipBookHandle>();

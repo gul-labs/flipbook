@@ -229,6 +229,41 @@ inside your own handlers during the jump are refused silently (`false`).
 zero afterwards. Branch on `pageCount === 0` if your handler assumed
 `pagesChanged` always meant "new pages arrived".
 
+### The portrait fold copy, media and `changeState` order (3.2.2)
+
+Nothing in the API changed; what a host can observe did.
+
+- **Event order.** `changeState` (`user_fold` / `flipping` / `fold_corner`) is
+  dispatched **before** the portrait copy is taken, and `read` **after** it is
+  removed — on a completed turn, a snap-back, `cancelTurn()` and an OS pointer
+  cancel. The copy is also gone before `flip` fires. A listener that pauses
+  audio or sets a flag at turn start now sees the original untouched.
+  `read` used to fire while the copy was still in the tree (a hover peel
+  copies at `fold_corner`, and a drag continuing from it announces `user_fold`
+  with the copy already present).
+- **Media in the copy.** `<video>` becomes a canvas of what the page shows (its
+  poster until it has played, else the current frame); `<audio>`, `<iframe>`,
+  `<embed>`, `<object>` become an empty box of the same size. The copy no
+  longer loads, decodes or plays anything. If you targeted the copy's
+  `<video>` (`[data-stf-clone] video`) it is now
+  `[data-stf-clone] canvas[data-stf-frame]`. See
+  [MEDIA-PAGES.md](./docs/MEDIA-PAGES.md).
+- **Interactive replaced elements.** With `respectInteractiveContent` (default
+  on) a pointer that starts on `video[controls]`, `audio[controls]`, `iframe`,
+  `embed` or `object` no longer starts a fold. A `<video>` without controls
+  still turns like paper. Set `respectInteractiveContent: false` to restore
+  the old behaviour.
+- **`-webkit-touch-callout: none`** is now part of the engine's block rule and
+  inherits: iOS shows no long-press link/image preview inside pages. Set
+  `-webkit-touch-callout: default` on those elements to bring it back.
+- **Portrait `flipToPage(n)`** curls the leaf that is on screen; it used to
+  curl a copy of the leaf next to page `n`.
+- **A turn refused over a live drag or hover peel** (a swipe toward a boundary,
+  a programmatic turn) now returns the book to `read` and clears the fold,
+  instead of leaving `user_fold` / `fold_corner` with the fold still drawn.
+  `turnToPage` called from a `changeState` listener during turn setup now
+  supersedes that turn (`flipNext()` returns `false`).
+
 ### Construction-time settings
 
 `hardCovers`, `initialPage` and `injectStyles` are consumed while the book is
@@ -311,7 +346,12 @@ Handler renames (all receive payloads directly, no `.data`):
 - **Controlled `page`:** pass `page` + `onPageChange`. `page` without
   `onPageChange` is a locked book — the engine turns, your prop snaps it back.
   `pageTransition="instant"` is the deep-link / `popstate` path; omit it (or
-  pass `"animate"`) for in-app turns.
+  pass `"animate"`) for in-app turns. As of 3.2.2 a controlled change animates
+  even with inline children; changing `page` again mid-turn does **not** call
+  `onPageChange` for the turn it interrupts (only for the page the book lands
+  on), so your state never steps back to a page you moved past; and a turn the
+  engine abandons (a live resize, `cancelTurn()`) is re-issued because the
+  prop is the source of truth.
 - **`usePageFlip()`** is the uncontrolled hook: spread `bookProps` onto the
   component (never pass `page={book.page}` alongside it). It returns `page`,
   `pageCount`, `orientation`, `visiblePages`, `canGoNext`, `canGoPrev`,

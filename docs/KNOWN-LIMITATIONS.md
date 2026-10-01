@@ -2,6 +2,8 @@
 
 Accepted current behavior and deferred-with-cause items. These are **not**
 silent bugs. Open work that we still intend to do lives in [TODO.md](./TODO.md).
+**What to build next** (priorities, rejects, product-owned gates):
+[TRIAGED-BACKLOG.md](./TRIAGED-BACKLOG.md).
 
 ## Interaction
 
@@ -24,7 +26,9 @@ consumer places the book on a rotated surface. Revisit when one does.
 | Snap-back cancel                                | Progress falls; **no** synthetic `0`                                                                   |
 | Turn completes                                  | Use core `flip` / `changeState` (React: `onPageChange` / `onChangeState`) — not a final `turnProgress` |
 
-Wire scrubbers to **`turnProgress` + a completion event** (`flip` / `onPageChange`).
+Wire scrubbers to **`turnProgress` + a completion event** (`flip` / `changeState`;
+React: `onPageChange` / `onChangeState`). A reader who expects a progress tick
+on `flippingTime: 0` is reading the contract wrong.
 
 ## Rendering / DOM ownership
 
@@ -66,9 +70,29 @@ them. Adding them is a locked-surface amendment — see TODO.
 ### Clone is a snapshot
 
 During a curl the fold face is a `cloneNode(true)` snapshot. Later mutations to
-the original do not propagate. Highlight via a **document stylesheet** on stable
-token ids, not per-word React re-renders that swap page nodes. Full contract:
+the original do not propagate. Highlight via a **document stylesheet** or an
+**attribute toggle** on stable token ids, not per-word React re-renders that
+swap page nodes. `Range` and the Highlight API do not cover the clone. A
+cloned `<video>` is replaced with a frozen canvas (no second request,
+decoder, or audio); `<audio>` is stripped. A cloned `<canvas>` is
+unsupported. With `respectInteractiveContent`, `video[controls]`,
+`audio[controls]`, `iframe`, `embed`, and `object` do not start a fold; a
+`<video>` without controls still swipes. `read` fires after the clone is
+removed, on a completed turn and on `cancelTurn()`. Full contract:
 [LIVE-PAGE-FACES.md](./LIVE-PAGE-FACES.md).
+
+### Playback is the host's job
+
+Core does not call `play`, `pause`, or `load` on media the host created
+([ADR 0004](./adr/0004-media-pages.md)). Pause audible media when a turn starts
+(`changeState` → `user_fold` / `flipping`, which fires before the portrait copy
+is taken), resume it if the turn is abandoned, and pause everything on pages
+that leave `getVisiblePages()` (on `flip`, which also covers `turnToPage`).
+Start only muted loops automatically, and not under `prefers-reduced-motion`;
+never start sound on its own (WCAG 1.4.2). `respectReducedMotion` makes the
+**turn** instant. It does not pause, mute, or replace page content. The full
+recipe, YouTube / Vimeo embedding and platform notes:
+[MEDIA-PAGES.md](./MEDIA-PAGES.md).
 
 ## Deliberately rejected
 

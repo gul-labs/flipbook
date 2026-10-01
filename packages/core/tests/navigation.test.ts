@@ -11,7 +11,7 @@ type CollectionStub = {
   getSpreadCount: () => number;
   getSpreadIndexByPage: (page: number) => number | null;
   [SET_SPREAD_INDEX]: (index: number) => void;
-  getFlippingPage: () => { id: string };
+  getFlippingPage: () => { id: string; getCopyOwner: () => null };
   getBottomPage: () => { id: string };
 };
 
@@ -37,7 +37,8 @@ function makeFlip(options?: { pageCount?: number; currentPage?: number }) {
       this.spread = index;
     },
     getFlippingPage() {
-      return { id: 'flip' };
+      // A live leaf, not a portrait copy: Flip drops a copy through its owner.
+      return { id: 'flip', getCopyOwner: () => null };
     },
     getBottomPage() {
       return { id: 'bottom' };

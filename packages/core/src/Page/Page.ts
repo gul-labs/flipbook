@@ -213,7 +213,17 @@ export class Page {
         );
       }
 
-      this.copiedElement = this.element.cloneNode(true) as HTMLElement;
+      // Media state is not an attribute. A cloned <video>/<audio> is a second
+      // player, and a cloned <iframe>/<embed>/<object> a second document.
+      // Silence the copies, show a <video> as a canvas of what the page shows,
+      // and box the rest — the page element itself included, since a media
+      // element is a legal leaf. A cloned <canvas> is not repainted
+      // (unsupported). Never pause, seek, or reload the original. This runs
+      // first so the markers below land on the element that is actually kept.
+      this.copiedElement = freezeCloneMedia(
+        this.element,
+        this.element.cloneNode(true) as HTMLElement,
+      );
       this.copiedElement.style.backgroundColor = foldFill(this.render.getSettings().pageBackground);
 
       // RB6. `cloneNode(true)` duplicates the CONSUMER's subtree into the live
@@ -703,4 +713,162 @@ export class Page {
   public dispose(): void {
     this.hideTemporaryCopy();
   }
+}
+
+/** Elements whose copy would be a second player or a second document. */
+const LIVE_EMBEDS = 'video,audio,iframe,embed,object';
+
+/**
+ * One pass over the clone, paired by document order with the original (the
+ * clone is a synchronous `cloneNode(true)`, so the two lists line up). Runs
+ * while the clone is still detached: an `<iframe>` / `<embed>` / `<object>`
+ * only loads once it is inserted, so replacing it here means it never does.
+ * A media element is different — `cloneNode` copies `src`, and that alone
+ * starts a fetch (and, with `autoplay`, playback) on a detached copy, which
+ * `replaceWith` / `remove` do not stop. `silence` aborts it.
+ *
+ * `querySelectorAll` never matches the element it is called on, so a page whose
+ * own element is media is replaced as a whole. Returns the element to keep: the
+ * clone, or the stand-in that took its place.
+ *
+ * Never touches the original: no `currentTime`, `pause`, or `load`.
+ */
+function freezeCloneMedia(original: HTMLElement, clone: HTMLElement): HTMLElement {
+  if (original.matches(LIVE_EMBEDS)) {
+    if (clone instanceof HTMLMediaElement) silence(clone);
+    return stillOf(original);
+  }
+
+  const sources = original.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
+  if (sources.length === 0) return clone;
+  const copies = clone.querySelectorAll<HTMLElement>(LIVE_EMBEDS);
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    const copy = copies[i];
+    if (source === undefined || copy === undefined) continue;
+
+    if (copy instanceof HTMLMediaElement) silence(copy);
+    copy.replaceWith(stillOf(source));
+  }
+  return clone;
+}
+
+/**
+ * What a live-media element looks like in the copy. Audio is boxed like an
+ * embed, not removed: `<audio controls>` has a box, and removing it collapsed
+ * the fold's layout (a hidden one resolves to `display: none` and still takes
+ * no room).
+ */
+function stillOf(source: HTMLElement): HTMLElement {
+  return source instanceof HTMLVideoElement
+    ? frameOf(source)
+    : standIn(source, 'div', 'data-stf-embed');
+}
+
+/** Abort the load the copied `src` started, and keep the copy from playing. */
+function silence(copy: HTMLMediaElement): void {
+  copy.removeAttribute('autoplay');
+  copy.removeAttribute('src');
+  for (const source of Array.from(copy.querySelectorAll('source'))) source.remove();
+  copy.load();
+}
+
+/**
+ * An inert box that takes `source`'s place in the page's layout. It carries
+ * every attribute (so the host's `data-*` survive — PB-11 G1) except `width` /
+ * `height`, which on a canvas would size the backing store, AND the source's
+ * whole resolved style inline. Rules written against the tag
+ * (`.bg video { position: absolute; inset: 0 }`) do not match a `<canvas>` or a
+ * `<div>`, so without the resolved style a full-bleed loop dropped into flow
+ * and pushed the page's text off the fold. The copy is a snapshot for one
+ * turn, so resolved values (`width: 332px`) are exactly what it should keep.
+ */
+function standIn<K extends 'canvas' | 'div'>(
+  source: HTMLElement,
+  tag: K,
+  marker: string,
+  computed: CSSStyleDeclaration = getComputedStyle(source),
+): HTMLElementTagNameMap[K] {
+  const box = document.createElement(tag);
+  for (const { name, value } of Array.from(source.attributes)) {
+    if (name !== 'width' && name !== 'height') box.setAttribute(name, value);
+  }
+  box.setAttribute(marker, '');
+
+  const style = box.style;
+  for (let i = 0; i < computed.length; i++) {
+    const name = computed.item(i);
+    style.setProperty(name, computed.getPropertyValue(name));
+  }
+  // An inline replaced element sizes like `inline-block`; a `div` left
+  // `inline` would ignore the width and height it was just given.
+  if (computed.display === 'inline') style.display = 'inline-block';
+  return box;
+}
+
+/**
+ * The video as the page shows it. Before the first frame is played the page
+ * shows the poster (the HTML "show poster" state), so the copy paints that;
+ * otherwise it paints the current frame. The backing store keeps the video's
+ * aspect ratio, so the resolved `object-fit` / `object-position` crop and
+ * letterbox exactly as the `<video>` did, and for the scaling fits it is capped
+ * at the box times the device pixel ratio: a 4K frame used to allocate ~33 MB.
+ * `none` and `scale-down` draw the frame at its intrinsic size, so those keep
+ * the native resolution.
+ */
+function frameOf(source: HTMLVideoElement): HTMLCanvasElement {
+  const computed = getComputedStyle(source);
+  const box = standIn(source, 'canvas', 'data-stf-frame', computed);
+  const fit = computed.objectFit;
+  const poster = source.poster;
+
+  if (poster !== '' && source.played.length === 0 && source.currentTime === 0) {
+    box.setAttribute('data-stf-poster', poster);
+    // The original is displaying this URL, so it is a cache hit, not the
+    // second request the copy exists to avoid. Longhands, so a host
+    // background-color survives.
+    const style = box.style;
+    style.backgroundImage = `url(${JSON.stringify(poster)})`;
+    style.backgroundPosition = computed.objectPosition;
+    style.backgroundSize =
+      fit === 'fill'
+        ? '100% 100%'
+        : fit === 'none'
+          ? 'auto'
+          : fit === 'cover'
+            ? 'cover'
+            : 'contain';
+    style.backgroundRepeat = 'no-repeat';
+    return box;
+  }
+
+  const width = parseFloat(computed.width);
+  const height = parseFloat(computed.height);
+  const frameWidth = source.videoWidth;
+  const frameHeight = source.videoHeight;
+  const ctx =
+    source.readyState >= 2 && frameWidth > 0 && frameHeight > 0 && width > 0 && height > 0
+      ? box.getContext('2d')
+      : null;
+  if (ctx === null) return box;
+
+  const scale =
+    fit === 'none' || fit === 'scale-down'
+      ? 1
+      : Math.min(
+          1,
+          Math.max(width / frameWidth, height / frameHeight) * (window.devicePixelRatio || 1),
+        );
+  box.width = Math.max(1, Math.round(frameWidth * scale));
+  box.height = Math.max(1, Math.round(frameHeight * scale));
+  // `drawImage` on a video does not throw for readiness or for a cross-origin
+  // source (that only taints the canvas); guarded anyway, because a throw here
+  // would escape a pointer handler mid-turn.
+  try {
+    ctx.drawImage(source, 0, 0, box.width, box.height);
+  } catch {
+    // A blank box still makes no request.
+  }
+  return box;
 }

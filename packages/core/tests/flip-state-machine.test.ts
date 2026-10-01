@@ -1026,6 +1026,65 @@ describe('AN2 — the state is true before it is announced', () => {
 });
 
 describe('V1 — a drag never inherits a fold the renderer was animating', () => {
+  test('a reverse swipe refused at page zero settles the interrupted turn', () => {
+    const { book: app } = book({ pageCount: 4, width: 200, height: 300, flippingTime: 400 });
+    const flip = testFlip(app)!;
+    const render = testRender(app);
+    const rect = app.getBoundsRect();
+    const leafLeft = rect.left + rect.width - rect.pageWidth;
+    const states: FlippingState[] = [];
+    app.on('changeState', (event) => states.push(event.data.state));
+
+    expect(app.flipNext()).toBe(true);
+    expect(app.getState()).toBe(FlippingState.FLIPPING);
+    expect(render.isAnimating()).toBe(true);
+
+    // The reverse swipe begins before the forward animation commits. Its BACK
+    // fold must cancel that animation, but page zero has no BACK destination.
+    const down = { x: leafLeft + 5, y: rect.top + 10 };
+    const moved = { x: leafLeft + 45, y: rect.top + 12 };
+    app.startUserTouch(down);
+    app.userMove(moved, true);
+
+    expect(render.isAnimating()).toBe(false);
+    expect(flip.getCalculation()).toBeNull();
+    expect(app.getCurrentPageIndex()).toBe(0);
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(states).toEqual([FlippingState.FLIPPING, FlippingState.READ]);
+
+    // UI releases a recognized swipe with isSwipe=true, skipping stopMove.
+    // The failed BACK request must not be needed to repair the engine state.
+    app.userStop(moved, true);
+    expect(app.flipPrev()).toBe(false);
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(app.flipNext()).toBe(true);
+    expect(app.getState()).toBe(FlippingState.FLIPPING);
+  });
+
+  test('a boundary swipe request settles a drag that had folded the other way', () => {
+    const { book: app } = book({ pageCount: 4, width: 200, height: 300, flippingTime: 400 });
+    const flip = testFlip(app)!;
+    const rect = app.getBoundsRect();
+    const leafLeft = rect.left + rect.width - rect.pageWidth;
+    const down = { x: leafLeft + rect.pageWidth - 5, y: rect.top + 10 };
+    const moved = { x: leafLeft + rect.pageWidth - 45, y: rect.top + 12 };
+
+    app.startUserTouch(down);
+    app.userMove(moved, true);
+    expect(app.getState()).toBe(FlippingState.USER_FOLD);
+    expect(flip.getCalculation()).not.toBeNull();
+
+    // The UI's fast-swipe branch skips stopMove and requests the semantic
+    // direction. A BACK request at page zero must clear this live drag even
+    // though the drag's own fold had been FORWARD.
+    app.userStop(moved, true);
+    expect(app.flipPrev()).toBe(false);
+    expect(app.getCurrentPageIndex()).toBe(0);
+    expect(flip.getCalculation()).toBeNull();
+    expect(app.getState()).toBe(FlippingState.READ);
+    expect(document.querySelectorAll('[data-stf-clone]')).toHaveLength(0);
+  });
+
   /**
    * `flippingTime` has to be REAL. With `0` the peel-in and the snap-back both
    * complete synchronously inside `startAnimation`, `calc` is already null when

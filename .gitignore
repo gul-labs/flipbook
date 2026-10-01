@@ -25,3 +25,7 @@ packages/*/size-check/
 playwright-report/
 test-results/
 examples/*/dist
+
+# generated probe media (docs/requests/video-pages/README.md)
+docs/requests/video-pages/*.mp4
+docs/requests/video-pages/out/

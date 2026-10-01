@@ -4,6 +4,134 @@ All notable changes to this monorepo will be documented in this file.
 
 ## Unreleased
 
+### Fixed — portrait fold copy and live-face order
+
+- **Media in the portrait clone.** A soft portrait turn replaces each cloned
+  `<video>` with a canvas showing what the page shows: the poster until the
+  video has played (the HTML "show poster" state), otherwise the current frame.
+  Before it is dropped, each copied media element loses `src`, `autoplay` and
+  its `<source>` children and is reloaded empty: `cloneNode` copies `src`,
+  which starts a fetch (and, with `autoplay`, playback) even on a detached
+  element. The copy therefore issues no second media request, starts no second
+  decoder, and plays no audio. The canvas carries the video's attributes
+  (`class`, `id`, `data-*`) and its whole resolved style inline, so layout from
+  rules written against the `video` tag (`position`, `inset`, `margin`,
+  `border-radius`, `object-fit`, …) survives the swap. Its backing store is the
+  box × `devicePixelRatio` in the video's aspect ratio, not the native
+  resolution (a 4K frame no longer allocates ~33 MB per turn); `object-fit:
+none` / `scale-down` keep the native resolution because they paint it 1:1.
+  `<audio>`, `<iframe>`, `<embed>` and `<object>` in the clone are replaced by
+  an empty box with the same attributes and resolved style before the clone is
+  attached, so nothing loads a second time and a visible `<audio controls>`
+  keeps its space. A cloned `<canvas>` is unsupported (pixels are not copied).
+  Media inside a shadow root or started by a custom element's
+  `connectedCallback` is not handled. The original element is not paused,
+  seeked, or reloaded. Landscape still folds the live leaf. A hard page still
+  does not clone.
+- **Interactive replaced elements.** With `respectInteractiveContent`, a pointer
+  that starts on `video[controls]`, `audio[controls]`, `iframe`, `embed`, or
+  `object` does not start a fold. A `<video>` without controls still swipes.
+- **Clone lifetime vs `changeState`.** `user_fold` / `flipping` are emitted
+  before the portrait clone is inserted. `read` is emitted after the clone
+  is removed, on a completed turn and on `cancelTurn()`. Keeping the clone
+  through the cancel `read` event detached a turn the listener started.
+- **Selection.** The injected block rule now sets `-webkit-touch-callout: none`
+  alongside `user-select: none`, on page faces and on the clone. It inherits:
+  iOS no longer offers the long-press link/image preview inside pages. A host
+  that wants it back sets `-webkit-touch-callout: default` on those elements.
+- **The copy leaves before `flip`.** A settling turn drops its portrait copy
+  before it commits, so a `flip` listener's token lookup finds one element, not
+  two, and a turn chained from `onFlip` never draws beside the stale copy.
+- **A turn started while the previous copy is settling keeps its own copy.**
+  `flipNext()` during a snap-back, or a turn started from a `read` listener,
+  re-copies the same leaf; the renderer's next frame used to delete that new
+  copy, and the turn animated with no visible leaf.
+- **OS-cancelled drags** (`pointercancel`, `lostpointercapture` — an iOS pan
+  steal) drop the fold's render state before `read`. The renderer used to keep
+  drawing a frozen half-fold, and for a portrait turn the clone stayed in the
+  tree until the next turn. Existing since 3.0.
+- **A refused turn over a live fold returns to `read`.** A programmatic or swipe
+  turn refused while a drag or hover peel was live (for example, re-grabbing a
+  `flipNext()` mid-flight and swiping toward page 0) discarded the fold but left
+  the book in `user_fold` / `fold_corner` with the fold still drawn. Existing
+  since 3.0.
+- **`turnToPage` from a turn-setup `changeState` listener** supersedes that
+  turn: the outer `flipNext()` returns `false`, and the book lands on the
+  requested page instead of committing one more page on top of it. Existing
+  since 3.0.
+- **A leaf whose element was removed from the document** (`DETACHED_PAGE`) is
+  still reported as `turnRejected`, and the book now returns to `read` rather
+  than staying in `flipping`. Because the copy is taken after the
+  announcement, that case emits `flipping` then `read` around the rejection.
+- **Portrait `flipToPage(n)` curls the leaf on screen** to reveal page `n`. It
+  used to animate a copy of the leaf next to the destination, so the first
+  frame jumped to a page the reader had never seen. Landscape is unchanged.
+- **Hygiene:** a completed turn drops the renderer's fold rect, as a cancelled
+  one already did (Z4). No visual change.
+
+### Fixed — React binding: controlled `page` and `lazyRadius`
+
+All four existed since 3.0.
+
+- **A controlled `page` change animates.** With ordinary inline children every
+  consumer re-render is a new `pages` identity, which re-ran the controlled
+  effect while its own turn was in flight; re-issuing `flipToPage` committed
+  that turn at once, so `pageTransition: 'animate'` snapped. The binding no
+  longer re-issues a turn already heading for the controlled page.
+- **Fast controlled changes settle on the newest value.** Changing `page`
+  mid-turn commits the outgoing turn first, and its `flip` fed that older page
+  back through `onPageChange`, so the consumer's state stepped backwards
+  (measured `0,1,2,1,3,2,4,3,4`). `onPageChange` is no longer called for those
+  intermediate commits while the binding applies a controlled value; it still
+  fires for the page the book lands on.
+- **A controlled turn the engine abandons is re-issued.** A live resize (a
+  scrollbar, a mobile URL bar) cancels a turn by design; nothing re-ran the
+  controlled effect, so the prop said one page and the book showed another
+  with nothing reported. On `read` short of the controlled page the binding
+  applies the prop again. This includes an explicit `cancelTurn()` on a
+  controlled book: the prop is the source of truth.
+- **`lazyRadius` placeholders keep the page's `className` / `style`.** A leaf
+  crossing the lazy window made React rewrite its `class` attribute, wiping the
+  engine's `stf__item` / density / `--shown` classes and with them the
+  `.stf__item::before` paper layer.
+
+### Docs — React-only settings, scrubber, live faces
+
+- README and package READMEs state which props exist only on `HTMLFlipBook`
+  (`lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, controlled `page` /
+  `pageTransition`). Unknown keys passed to `PageFlip` are ignored. A vanilla
+  host windows its own DOM.
+- Scrubber contract: `turnProgress` is silent on instant and reduced-motion
+  turns and on hover peel; settle with `flip` / `changeState`. React page
+  children must keep a stable identity across `onTurnProgress`.
+- Live-face contract documents the attribute-toggle highlight pattern, the
+  two-element lookup, and that `Range` / Highlight API do not cover the clone.
+  A host-owned media recipe (play from `visiblePages`, poster under reduced
+  motion, WCAG pause is the host's) sits next to the known limitations.
+  `respectReducedMotion` does not cover page content.
+
+### Fixed — interrupted swipe state and probe hygiene
+
+- `Flip.fold()`: a BACK swipe at page zero could cancel
+  an in-flight forward turn and then be refused, leaving the book in `flipping`
+  with no animation or calculation. A recognized swipe skips `stopMove()`, so
+  only a later turn recovered it. Refused folds now return to `read` immediately.
+- `Flip.runFlip()`: a rightward swipe could briefly fold
+  FORWARD, then request a refused BACK turn at page zero. The book reported
+  `user_fold` with no calculation and kept an orphaned visual clone. A refused
+  turn now cancels that drag, removes its clone and returns to `read`.
+- `docs/requests/VIDEO-PAGES-REQUIREMENTS.md:285-286`: a frozen video snapshot
+  cannot stay within one frame of a playing original 35% into a turn, and a
+  browser may make several legitimate range requests for one video. The
+  acceptance tests now check clone-time fidelity and requests caused by turns.
+- `docs/requests/video-pages/probe.mjs:29`: the browser probe was linted as
+  Node source, so its Playwright callbacks' `window` and `document` globals
+  failed `quality:ci`. They are declared for that file's browser callbacks.
+- `docs/requests/video-pages/probe.mjs:88`: a navigation failure printed an
+  error but left the browser open and never failed the command, making probe
+  failures look inconclusive or successful. It now closes on failure and sets
+  a nonzero exit status.
+
 ### Fixed — mobile branch adversarial audit
 
 - **Rotation during a turn:** wrapper geometry and the spread cursor now agree
@@ -31,7 +159,7 @@ All notable changes to this monorepo will be documented in this file.
 - **`updateSettings`.** Stamp host + Render bounds, abandon the original fold, remirror (`pages.show` unless a nested turn is live), then rebind pointers. `{ pointerInput, width }` no longer abandons against the old box. Direction-only no longer remirrors while the curl is still installed. `maxHeight` is in the fold-invalidating set (omissions are a type error). Engine-initiated `releasePointerCapture` is not treated as an OS steal, so a nested `flipNext` from the first READ is not killed.
 - **Pointer capture.** `lostpointercapture` that is not our own release abandons the fold (iOS pan steal). `pointerup` still commits. Touch move listeners are `{passive:false}`. `allowTouchScroll: false` sets `--lock-touch-scroll` (`touch-action: pinch-zoom`); pan is CSS, `preventDefault` only once a fold is live so pinch-zoom stays. Destroy restores the lock class.
 - **React destroy-without-unmount.** `FlipBookHandle.destroy()` retires the shell (portal dropped, Next/Prev `aria-disabled`, further turns `code: 'DESTROYED'`). Unmount reports `NOT_LOADED` on a captured handle. `pageFlip()?.destroy()` tears the engine down; the shell retires on the next render. No `flushSync`, no wrapping of `PageFlip.destroy`. `pagesChanged` with `pageCount: 0` notifies `usePageFlip`.
-- **Size.** The original size report was inaccurate; see the clean-build measurements and owner-approved limits in the audit entry above.
+- **Size.** The portrait media snapshot measures **67,058 B raw / 16,339 B brotli / 18,493 B gzip** against the previous 66 / 16.1 / 18.2 kB ceilings. Ceilings are now **68 / 16.5 / 18.6 kB**. The growth is the snapshot plus announcing `changeState` before the clone exists.
 
 ### Tests — fixture honesty
 

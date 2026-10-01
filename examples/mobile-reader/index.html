@@ -114,8 +114,9 @@
       }
     </style>
     <!--
-      Shared highlight rules live OUTSIDE every page subtree so cloneNode copies
-      still match. The clock only rewrites this sheet; it never mutates tokens.
+      Shared highlight rules live OUTSIDE every page subtree so the portrait
+      copy still matches. The clock only rewrites this sheet. `read` fires
+      after that copy is gone, on a completed turn and on cancelTurn().
     -->
     <style id="highlight-sheet"></style>
   </head>

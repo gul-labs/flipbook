@@ -26,12 +26,15 @@ body = body
   .replace(/\/\/# sourceMappingURL=[^\n]*/g, '');
 
 // Canvas mode was removed (ADR 0002). A leaked canvas renderer would still
-// show up as `getContext` in the eager graph — refuse that regression.
-if (body.includes('getContext')) {
+// show up as `getContext` in the eager graph. The one allowed call is the
+// portrait-clone media snapshot (`data-stf-frame`), which paints a single
+// frozen frame and is not a renderer. Any other hit is the regression.
+const contextHits = body.split('getContext').length - 1;
+if (contextHits !== 1 || !body.includes('data-stf-frame')) {
   console.error(
     'Canvas renderer code leaked into the eager HTML engine graph (found\n' +
-      '`getContext`). Canvas mode was removed; nothing should acquire a 2d\n' +
-      'context from this package.',
+      `${contextHits} getContext hit(s); expected 1, the portrait-clone video\n` +
+      'snapshot marked data-stf-frame). Canvas mode was removed.',
   );
   process.exit(1);
 }
@@ -101,7 +104,17 @@ console.log(`html-engine.js ${files.join('+')} ${bytes} B (${(bytes / 1000).toFi
 // 2026-09-08 audit: f91a654 clean build was 65_650 B, not the claimed 64.16 kB.
 // Rebase/restyle before cancellation adds 196 B (65_846 / 16_018 / 18_127 B).
 // Owner approved 66 / 16.1 / 18.2 kB ceilings in the audit conversation.
-const RAW_ALARM_BYTES = 66_000;
+// 2026-09-27 portrait media snapshot (freeze cloned <video>/<audio>): measured
+// 67_058 B raw / 16_339 B brotli / 18_493 B gzip. Correctness fix; the second
+// decoder is the cost of leaving the clone as a live <video>. Ceiling raised
+// to 68 / 16.5 / 18.6 kB with headroom, recorded in the commit. Not a silent
+// ratchet — the delta is the snapshot plus the changeState clone-order fix.
+// 2026-09-28 clone media hardening (silence copied media, stand-ins for
+// iframe/embed/object, frame canvas sized to the video's layout box, poster):
+// measured 68_329 B raw / 16_712 B brotli / 18_937 B gzip (Node zlib
+// defaults; size-limit: 18.88 kB gzip). Owner approved
+// 69 / 16.8 / 19.0 kB in the audit conversation.
+const RAW_ALARM_BYTES = 69_000;
 
 if (bytes > RAW_ALARM_BYTES) {
   console.error(

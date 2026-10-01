@@ -17,6 +17,10 @@ const swipeDistanceParam = params.get('swipeDistance');
 const swipeDistance =
   swipeDistanceParam !== null && swipeDistanceParam !== '' ? Number(swipeDistanceParam) : undefined;
 
+// `lazyRadius`, `controls`, `liveRegion`, `useKeyboard`, and controlled `page`
+// are React-only. Unknown keys passed here are ignored. This host mounts
+// every `.page`. A portrait curl freezes `<video>` as a canvas and strips
+// `<audio>`; `video[controls]` does not start a fold. Playback stays here.
 const book = new PageFlip(root, {
   width: 400,
   height: 300,
