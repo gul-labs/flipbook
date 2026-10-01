@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 10
+    ignore:
+      # Pinned below typescript-eslint's supported range (see CLAUDE.md and
+      # scripts/quality.mjs). A TypeScript major breaks the preflight, so it
+      # is bumped by hand when typescript-eslint supports it.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     groups:
       production-minor:
         dependency-type: production
