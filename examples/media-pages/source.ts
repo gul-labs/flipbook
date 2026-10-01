@@ -4,7 +4,7 @@
  * committed. The frame counter is burned into the picture, so a fold that
  * shows a different frame from its page is visible at a glance.
  *
- * A real book uses files. `?video=<url>` swaps the generated video for one.
+ * A real book uses files. `?video=<path>` (same origin) swaps the generated video for one.
  */
 
 export interface GeneratedMedia {

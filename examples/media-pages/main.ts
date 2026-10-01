@@ -18,9 +18,12 @@ function mediaSlot<T extends HTMLMediaElement>(name: string, type: new () => T):
 const loop = mediaSlot('loop', HTMLVideoElement);
 const clip = mediaSlot('clip', HTMLVideoElement);
 const narration = mediaSlot('audio', HTMLAudioElement);
+// `?video=<path>` swaps in a file. Only a same-origin http(s) URL is accepted,
+// so a crafted link cannot point the page at another origin or a script URL.
 const file = params.get('video');
-if (file !== null) {
-  clip.src = file;
+const fileUrl = file === null ? null : new URL(file, window.location.href);
+if (fileUrl !== null && fileUrl.origin === window.location.origin) {
+  clip.src = fileUrl.href;
 } else {
   clip.srcObject = media.withSound;
 }
