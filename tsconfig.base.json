@@ -1,9 +1,5 @@
 {
   "compilerOptions": {
-    // tsup's dts build hard-codes `baseUrl: "."` into rollup-plugin-dts, and
-    // TypeScript 6 errors on `baseUrl` as deprecated. Drop this once tsup stops
-    // setting it; it is not used by our own configs.
-    "ignoreDeprecations": "6.0",
     "target": "ES2020",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",

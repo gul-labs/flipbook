@@ -199,10 +199,10 @@ tears the book down mid-animation.
   for the policy: dead code always goes, working code never goes to buy bytes,
   and a correctness fix may spend the headroom **and say so**.
 - **TypeScript is pinned below latest.** 6.0.3, not 7.0.2, because
-  typescript-eslint 8.68 declares `typescript: <6.1.0` and TS 7 would install
-  cleanly and then silently disable every type-aware rule. `ignoreDeprecations`
-  in `tsconfig.base.json` is a shim for tsup hard-coding `baseUrl` into its dts
-  build; drop it when tsup stops.
+  typescript-eslint 8.72 declares `typescript: <6.1.0` and TS 7 would install
+  cleanly and then silently disable every type-aware rule. tsup 9 no longer
+  injects `baseUrl` into its declaration build, so the `ignoreDeprecations`
+  workaround has been removed from `tsconfig.base.json`.
 - **The release path needs an `NPM_TOKEN` secret.** Publishing uses the token +
   provenance path, matching `gul-labs/any-llm`. Moving to npm trusted publishing
   is worthwhile but needs per-package setup on npmjs.com first — see
