@@ -22,19 +22,19 @@ jobs:
     # was here originally. `workflow_run` is the "pwn request" trigger: it runs
     # in the BASE repo with full privileges (`contents: write`, and
     # `id-token: write`, which mints the npm publish credential), and it fires
-    # for CI runs triggered by
-    # `pull_request` — which `ci.yml` accepts unrestricted, so fork PRs
-    # included. The `branches: [main]` filter above does NOT help: for a
-    # `workflow_run` it matches `head_branch`, and for a fork PR that is the
-    # FORK's branch name.
+    # for CI runs triggered by `pull_request` — which `ci.yml` accepts
+    # unrestricted, so fork PRs included. The `branches: [main]` filter above
+    # does NOT help: for a `workflow_run` it matches `head_branch`, and for a
+    # fork PR that is the FORK's branch name.
     #
     # So the chain was: fork the repo, name your branch `main`, open a PR. CI
     # runs your commit — you control the tests, so it goes green. Release fires,
     # checks out `head_sha` (your commit), and runs `pnpm install
     # --frozen-lockfile` with your lockfile and `pnpm build` with your
     # `tsup.config.ts`. That is arbitrary code execution in a job that can mint
-    # a publish credential, and `changeset publish` will then upload whatever it built
-    # as `@gullabs/*`. `Preflight` is no defence — it is the attacker's code too.
+    # a publish credential, and `changeset publish` will then upload whatever
+    # it built as `@gullabs/*`. `Preflight` is no defence — it is the
+    # attacker's code too.
     #
     # `event == 'push'` is the load-bearing one: a PR-triggered CI run can never
     # satisfy it. The repository and branch checks are belt and braces, and cost
@@ -144,13 +144,13 @@ jobs:
       # package's directory, `pnpm publish --json --access public --tag <tag>
       # --no-git-checks` (a tarball path is passed only in `--from-pack-dir`
       # artifact mode, which this workflow does not use). pnpm packs the
-      # package itself (running `prepack`) and rewrites `workspace:*` to the real
-      # version in the uploaded manifest; the detached HEAD is fine because of
-      # `--no-git-checks`. changesets/action@v2 renamed the root inputs (version →
-      # version-script, publish → publish-script, title → pr-title, commit →
-      # commit-message) and stopped reading GITHUB_TOKEN from the environment —
-      # pass github-token. A blind pin bump without these renames breaks the
-      # next publish.
+      # package itself (running `prepack`) and rewrites `workspace:*` to the
+      # real version in the uploaded manifest; the detached HEAD is fine
+      # because of `--no-git-checks`. changesets/action@v2 renamed the root
+      # inputs (version → version-script, publish → publish-script, title →
+      # pr-title, commit → commit-message) and stopped reading GITHUB_TOKEN from
+      # the environment — pass github-token. A blind pin bump without these
+      # renames breaks the next publish.
       #
       # NO npm token. Publishing authenticates ONLY through npm trusted
       # publishing: pnpm asks the Actions OIDC endpoint for an id token
@@ -163,12 +163,15 @@ jobs:
       # the PUT with setup-node's placeholder (or an empty bearer), which the
       # fake registry rejected with 401 as npm rejects an invalid token, so
       # nothing was stored and the job failed; WITH a token, a failing
-      # exchange published through the token, unattested. A token's only effect is that last path, so there is none:
-      # a package without a trusted publisher fails to publish instead of
-      # publishing unattested. `NPM_CONFIG_PROVENANCE` is gone for the same
-      # reason it never worked under pnpm 11+: pnpm publishes natively and reads
-      # `provenance` only from the `--provenance` flag, which changesets cannot
-      # pass (gul-labs/any-llm 0.14.0 shipped unattested that way).
+      # exchange published through the token, unattested. That unattested
+      # path is the only thing a token adds, so this workflow passes no npm
+      # token at all: a package without a trusted publisher fails to publish
+      # instead of publishing unattested.
+      #
+      # `NPM_CONFIG_PROVENANCE` is gone too. It never worked under pnpm 11+:
+      # pnpm publishes natively and reads `provenance` only from the
+      # `--provenance` flag, which changesets cannot pass (gul-labs/any-llm
+      # 0.14.0 shipped unattested that way).
       #
       # Requires a trusted publisher on npmjs.com for EACH package against this
       # repository and `release.yml`. Whether that is set up for
@@ -196,6 +199,12 @@ jobs:
       # dropping out of the "published this run" list. It cannot un-publish
       # (npm versions are immutable). Inputs go in through the environment,
       # never interpolated into the script.
+      #
+      # A registry that cannot be read fails this step only on a run that
+      # published (CHANGESETS_PUBLISHED=true). On a run that published nothing,
+      # such as the one that opens the Version Packages PR, it is a
+      # `::warning::` and the step passes; the next run looks again. A version
+      # the registry positively shows without provenance fails every run.
       #
       # `published-packages` is the v2 output name (v1 called it
       # `publishedPackages`). `!cancelled()` because changesets/action sets

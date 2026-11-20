@@ -37,12 +37,23 @@
  * FOUR OUTCOMES, NEVER CONFLATED
  * ------------------------------
  *   VERIFIED     every version checked is attested or not published -> exit 0
- *   MISSING      a version exists and has no provenance                -> exit 1
- *   UNVERIFIED   a version document could not be read after retries   -> exit 1
+ *   MISSING      a version exists and has no provenance                -> exit 1, always
+ *   UNVERIFIED   a version document could not be read after retries   -> exit 1 when
+ *                CHANGESETS_PUBLISHED is 'true'; otherwise a loud warning
+ *                (`::warning::` under GitHub Actions) and exit 0
  *   BAD INPUT    the inputs are absent or malformed                    -> exit 1
  *
- * UNVERIFIED fails closed, unlike the audit gate's UNDETERMINED: this runs after
- * a publish that has already happened, so there is no merge to unblock.
+ * UNVERIFIED fails closed on a run that published: a version left the building
+ * in this run, so there is no later moment that will prove it. On a run that
+ * published nothing (the one that only opens the Version Packages PR), a
+ * registry outage must not turn the job red; the next run looks again. MISSING
+ * is positive evidence that a version lacks provenance and fails every run.
+ *
+ * STATED LIMIT: this reads npm's `dist.attestations` record; it does not
+ * download and decode the attestation bundle to compare its source commit with
+ * the commit that was built. That mismatch is prevented at the source (the
+ * Release job runs only when `workflow_run.head_sha == github.sha`), and npm
+ * validates the bundle against the publishing OIDC identity at upload.
  *
  * Inputs (environment; argv[2] may carry PUBLISHED_PACKAGES instead):
  *   CHANGESETS_PUBLISHED   'true' or 'false': changesets/action's `published`.
@@ -217,32 +228,42 @@ function provenanceProblem(doc, name, version) {
 
 /**
  * Check one version. `mustExist` is true for versions this run reported as
- * published: for those a 404 is registry lag, not an answer.
+ * published.
+ *
+ * Every non-final answer is re-read within the bounded window, 404s included:
+ * a replica can lag in either direction. Positive evidence is never erased: once
+ * any read has returned the version document, a later 404 (or error) does not
+ * turn it into "not published"; the result is the last document seen. A
+ * version is `unpublished` only if every read said 404 and this run did not
+ * report it.
  * Returns { state: 'attested' | 'unpublished' | 'missing' | 'unverified', detail }.
  */
 async function check({ name, version, mustExist }) {
+  let evidence = null; // the last version document seen without provenance
   let last;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
     const result = await fetchVersionDoc(name, version);
-    if (result.notFound && !mustExist) {
-      return { state: 'unpublished', detail: 'HTTP 404: not published yet' };
-    }
     if (result.doc) {
       const problem = provenanceProblem(result.doc, name, version);
       if (!problem) {
         return { state: 'attested', detail: result.doc.dist.attestations.provenance.predicateType };
       }
-      last = { state: 'missing', detail: problem };
+      evidence = { state: 'missing', detail: problem };
+      last = evidence;
     } else if (result.notFound) {
-      last = { state: 'unverified', detail: 'HTTP 404 (reported as published, not visible)' };
+      last =
+        evidence ??
+        (mustExist
+          ? { state: 'unverified', detail: 'HTTP 404 (reported as published, not visible)' }
+          : { state: 'unpublished', detail: 'HTTP 404: not published yet' });
     } else {
-      last = { state: 'unverified', detail: result.error };
+      last = evidence ?? { state: 'unverified', detail: result.error };
       if (!result.retryable) return last;
     }
     if (attempt < RETRIES) {
       const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
       console.error(
-        `provenance check: ${name}@${version}: ${last.detail}; re-reading in ${delay}ms (${attempt}/${RETRIES})`,
+        `provenance check: ${name}@${version}: ${result.doc ? last.detail : (result.error ?? 'HTTP 404')}; re-reading in ${delay}ms (${attempt}/${RETRIES})`,
       );
       await sleep(delay);
     }
@@ -278,14 +299,40 @@ if (outcome.missing.length > 0) {
       'See RELEASING.md for the trusted-publisher setup.',
   );
 }
+// UNVERIFIED fails only a run that published: then a version left the
+// building in this run and must be proven. On a run that published nothing
+// (e.g. one that only opened the Version Packages PR), a registry outage is a
+// loud warning, not a red job; the next run looks again. MISSING is positive
+// evidence and fails every run.
+const publishedThisRun = process.env.CHANGESETS_PUBLISHED === 'true';
 if (outcome.unverified.length > 0) {
-  console.error(
+  const lines = [
     `provenance check: UNVERIFIED — could not establish ${outcome.unverified.length} version(s) after ${RETRIES} attempts:`,
-  );
-  for (const u of outcome.unverified) console.error(`  ${u}`);
-  console.error('This is NOT a pass: provenance was not checked for these versions.');
+    ...outcome.unverified.map((u) => `  ${u}`),
+    'This is NOT a pass: provenance was not checked for these versions.',
+  ];
+  if (publishedThisRun || outcome.missing.length > 0) {
+    for (const l of lines) console.error(l);
+  } else {
+    lines.push(
+      'Not failing: this run published nothing (CHANGESETS_PUBLISHED=false); the next Release run checks again.',
+    );
+    for (const l of lines) {
+      console.error(process.env.GITHUB_ACTIONS ? `::warning::${l}` : `WARNING: ${l}`);
+    }
+  }
 }
-if (outcome.missing.length > 0 || outcome.unverified.length > 0) process.exit(1);
+if (outcome.missing.length > 0 || (outcome.unverified.length > 0 && publishedThisRun)) {
+  process.exit(1);
+}
+if (outcome.unverified.length > 0) {
+  console.log(
+    `provenance check: UNVERIFIED, not failing — ${targets.size} version(s) checked: ` +
+      `${outcome.attested.length} attested, ${outcome.unpublished.length} not published yet, ` +
+      `${outcome.unverified.length} unreadable.`,
+  );
+  process.exit(0);
+}
 
 console.log(
   `provenance check: VERIFIED — ${targets.size} version(s) checked: ` +

@@ -47,7 +47,13 @@
  * blocking every merge on a third-party outage buys no security. Set
  * `AUDIT_REQUIRE_VERDICT=1` to fail closed instead.
  *
- * Usage: node scripts/audit.mjs [--audit-level=high] [--lockfile=pnpm-lock.yaml]
+ * Usage: node scripts/audit.mjs [--audit-level=high] [--lockfile=pnpm-lock.yaml] [--prod]
+ *
+ * --prod is supported only inside a pnpm WORKSPACE: it takes the production
+ * tree from `pnpm ls` for the workspace containing the current directory and
+ * requires --lockfile (default pnpm-lock.yaml) to be that workspace's own
+ * lockfile, next to its pnpm-workspace.yaml. A standalone project without a
+ * pnpm-workspace.yaml is refused, not guessed at.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -188,7 +194,9 @@ function classifyLockfileDocuments(text, path) {
       fail(`lockfile ${path} document ${index + 1}: \`snapshots\` is not a mapping`);
     }
     const packageKeys = new Set(Object.keys(isMapping(doc.packages) ? doc.packages : {}));
-    const orphan = Object.keys(doc.snapshots ?? {}).find((k) => !packageKeys.has(k.split('(')[0]));
+    const orphan = Object.keys(doc.snapshots ?? {}).find(
+      (k) => !packageKeys.has(k) && !packageKeys.has(withoutResolutionSuffix(k)),
+    );
     if (orphan !== undefined) {
       fail(
         `lockfile ${path} document ${index + 1}: snapshot ${JSON.stringify(orphan)} has no ` +
@@ -215,6 +223,36 @@ function classifyLockfileDocuments(text, path) {
   return { workspace: workspaceDocuments[0], env: envDocuments[0] ?? null };
 }
 
+/**
+ * A lockfile key without its trailing peer / patch resolution suffix:
+ * `react-dom@19.3.1(react@19.3.1)` -> `react-dom@19.3.1`,
+ * `next@16.4.6(react-dom@19.3.1(react@19.3.1))(react@19.3.1)` -> `next@16.4.6`,
+ * `foo@1.0.0(patch_hash=abc123)` -> `foo@1.0.0`.
+ *
+ * Only balanced `(...)` groups at the END of the key whose content is a peer
+ * (`name@version…`) or a `patch_hash=` are removed. A `(` that is part of the
+ * key itself is kept: `widget@file:widget(copy).tgz` stays whole (its last
+ * character is not `)`), which splitting at the first `(` got wrong.
+ */
+function withoutResolutionSuffix(key) {
+  const SUFFIX = /^(?:patch_hash=[\w-]+|(?:@[^\s()@/]+\/)?[^\s()@/]+@.+)$/;
+  let rest = key;
+  while (rest.endsWith(')')) {
+    let depth = 0;
+    let open = -1;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if (rest[i] === ')') depth++;
+      else if (rest[i] === '(' && --depth === 0) {
+        open = i;
+        break;
+      }
+    }
+    if (open <= 0 || !SUFFIX.test(rest.slice(open + 1, -1))) break;
+    rest = rest.slice(0, open);
+  }
+  return rest;
+}
+
 function readLockfile(path) {
   let text;
   try {
@@ -233,7 +271,7 @@ function readLockfile(path) {
  */
 function addLockfilePackages(doc, into) {
   for (const rawKey of Object.keys(doc?.packages ?? {})) {
-    const key = rawKey.split('(')[0];
+    const key = withoutResolutionSuffix(rawKey);
     const at = key.lastIndexOf('@');
     if (at <= 0) continue;
     const name = key.slice(0, at);
@@ -245,7 +283,16 @@ function addLockfilePackages(doc, into) {
   return into;
 }
 
-/** Every resolved package in both lockfile documents. */
+/**
+ * Every resolved package in both lockfile documents.
+ *
+ * TRUST BOUNDARY: this reads `packages` (and checks `snapshots` against it); it
+ * does not re-validate that every importer's references resolve to an entry.
+ * The lockfile it audits is the one `pnpm install --frozen-lockfile` has
+ * already accepted in the same job, which performs that resolution; and the CI
+ * gate itself (`pnpm audit:gate`) uses `--prod`, which takes the tree from
+ * `pnpm ls` rather than from this reader.
+ */
 function readInstalledPackages(lockfile, path) {
   const packages = addLockfilePackages(lockfile.workspace, new Map());
   if (packages.size === 0) fail(`lockfile ${path} lists no packages; refusing to report clean`);
@@ -353,7 +400,12 @@ function assertOwnLockfile(path) {
   let dir = resolve(process.cwd());
   while (!existsSync(join(dir, 'pnpm-workspace.yaml'))) {
     const parent = dirname(dir);
-    if (parent === dir) fail('--prod: no pnpm-workspace.yaml above the current directory');
+    if (parent === dir) {
+      fail(
+        '--prod is supported only inside a pnpm workspace, and there is no pnpm-workspace.yaml ' +
+          'at or above the current directory. A standalone project is not supported.',
+      );
+    }
     dir = parent;
   }
   const own = join(dir, 'pnpm-lock.yaml');
@@ -366,7 +418,8 @@ function assertOwnLockfile(path) {
   };
   if (real(path) !== real(own)) {
     fail(
-      `--prod reads the dependency tree of the workspace at ${dir}, so --lockfile must be its ` +
+      `--prod is supported only for a workspace's own lockfile: it reads the dependency tree of ` +
+        `the workspace at ${dir}, so --lockfile must be its ` +
         `own ${own}, not ${resolve(path)}`,
     );
   }

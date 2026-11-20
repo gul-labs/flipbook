@@ -46,6 +46,7 @@ const attested = (name, version) =>
  */
 function startRegistry(routes) {
   const seen = [];
+  const lifetimes = [];
   const served = new Map();
   const server = createServer((req, res) => {
     seen.push(req.url);
@@ -58,13 +59,17 @@ function startRegistry(routes) {
     const n = served.get(req.url) ?? 0;
     served.set(req.url, n + 1);
     const step = plan[Math.min(n, plan.length - 1)];
-    if (step === 'hang') return;
+    if (step === 'hang') {
+      const arrived = Date.now();
+      res.on('close', () => lifetimes.push(Date.now() - arrived));
+      return;
+    }
     res.writeHead(step.status, { 'content-type': 'application/json' });
     res.end(typeof step.body === 'string' ? step.body : JSON.stringify(step.body));
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () =>
-      resolve({ server, seen, url: `http://127.0.0.1:${server.address().port}` }),
+      resolve({ server, seen, lifetimes, url: `http://127.0.0.1:${server.address().port}` }),
     );
   });
 }
@@ -73,16 +78,23 @@ function startRegistry(routes) {
 // spawned check pays fetch()'s lazy initialisation inside it; see
 // REQUEST_BUDGET_MS in audit.test.mjs for the measurements behind this.
 const REQUEST_BUDGET_MS = '10000';
-// The hang case IS about the timeout. 1000 ms clears the worst measured cold
-// start, so all three attempts really reach the fake before they are aborted
-// (the case asserts three requests; at 300 ms an attempt could abort before it
-// was sent). Bounded from outside so a check that ignores
-// PROVENANCE_TIMEOUT_MS fails here instead of hanging.
-const HANG_TIMEOUT_MS = '1000';
+// The hang cases ARE about the timeout (settings below). Bounded from outside
+// so a check that ignores PROVENANCE_TIMEOUT_MS fails here instead of hanging.
 const HANG_DEADLINE_MS = 15000;
 // Process start-up plus the fetch() cold start measured under load (max 385 ms
 // with the CPU 2x oversubscribed), with room to spare.
 const STARTUP_ALLOWANCE_MS = 3000;
+/**
+ * Per-request lifetime, measured at the fake: from the moment a hung request
+ * arrives to the moment the client gives up and the connection closes. The
+ * client's timer starts before the request is sent (the AbortSignal exists
+ * before fetch()), so a lifetime is the timeout minus the time to get the
+ * request out, which includes fetch()'s cold start (measured max 385 ms under
+ * load). The two settings below give DISJOINT windows, so any single
+ * hard-coded timeout falls outside at least one of them.
+ */
+const HANG_SETTINGS_MS = [1500, 3000];
+const LIFETIME_WINDOW = (timeoutMs) => [timeoutMs - 700, timeoutMs + 300];
 
 /** A throwaway repository root whose packages/* manifests are `packages`. */
 function makeWorkspace(packages) {
@@ -154,9 +166,9 @@ function check(name, condition, detail) {
 }
 
 async function withRegistry(routes, fn) {
-  const { server, seen, url } = await startRegistry(routes);
+  const { server, seen, lifetimes, url } = await startRegistry(routes);
   try {
-    return await fn(url, seen);
+    return await fn(url, seen, lifetimes);
   } finally {
     server.close();
     server.closeAllConnections?.();
@@ -300,27 +312,26 @@ for (const [label, plan] of [
 }
 
 // The timeout path, asserted rather than logged: the fake must see exactly the
-// configured attempts, and the run must take about attempts x timeout. Two
-// settings, so a hard-coded timeout fails one of them: too short undercuts the
-// lower bound, too long overshoots the upper bound or the deadline.
-for (const timeoutMs of [Number(HANG_TIMEOUT_MS), Number(HANG_TIMEOUT_MS) * 2]) {
-  await withRegistry({ [CORE_PATH]: ['hang'] }, async (url, seen) => {
+// configured attempts, each abandoned after the configured timeout.
+for (const timeoutMs of HANG_SETTINGS_MS) {
+  await withRegistry({ [CORE_PATH]: ['hang'] }, async (url, seen, lifetimes) => {
     const result = await runCheck({
       url,
       published: [CORE],
       env: { PROVENANCE_TIMEOUT_MS: String(timeoutMs) },
       deadlineMs: HANG_DEADLINE_MS,
     });
-    const floor = 3 * timeoutMs - 50;
-    const ceiling = 3 * timeoutMs + STARTUP_ALLOWANCE_MS;
+    await new Promise((r) => setTimeout(r, 50));
+    const [lo, hi] = LIFETIME_WINDOW(timeoutMs);
     check(
-      `registry hang at ${timeoutMs} ms -> UNVERIFIED, 3 requests, ${floor}..${ceiling} ms`,
+      `registry hang at ${timeoutMs} ms -> UNVERIFIED, 3 requests, each abandoned after ${lo}..${hi} ms`,
       result.code === 1 &&
         /UNVERIFIED/.test(result.out) &&
         seen.length === 3 &&
-        result.elapsedMs >= floor &&
-        result.elapsedMs <= ceiling,
-      `exit=${result.code} requests=${seen.length} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
+        lifetimes.length === 3 &&
+        lifetimes.every((ms) => ms >= lo && ms <= hi) &&
+        result.elapsedMs <= 3 * timeoutMs + STARTUP_ALLOWANCE_MS,
+      `exit=${result.code} requests=${seen.length} lifetimes=${lifetimes.join(',')}ms elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
   });
 }
@@ -498,12 +509,12 @@ await withRegistry({ [CORE_PATH]: notFound, [REACT_PATH]: notFound }, async (url
     workspace: BOTH_WORKSPACE,
   });
   check(
-    'nothing published, workspace versions 404 -> VERIFIED (not published yet), one request each',
+    'nothing published, workspace versions 404 on every re-read -> VERIFIED (not published yet), 3 reads each',
     result.code === 0 &&
       /check: VERIFIED — 2 version\(s\) checked: 0 attested, 2 not published yet/.test(
         result.out,
       ) &&
-      seen.length === 2,
+      seen.length === 6,
     `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
   );
 });
@@ -526,6 +537,121 @@ await withRegistry(
     );
   },
 );
+
+// EVIDENCE IS NOT ERASABLE. Once a read has shown the version exists, a later
+// 404 must not turn it into "not published yet" (a lagging replica, or a
+// version that was uploaded by an earlier run and is not in this run's list).
+for (const [label, plan, expectCode, expectRe] of [
+  [
+    'manifest version: 200 unattested, then 404, 404 -> MISSING (last positive evidence), exit 1',
+    [{ status: 200, body: versionDoc(CORE.name, CORE.version) }, ...notFound],
+    1,
+    /MISSING[\s\S]*@gullabs\/flipbook-core@3\.2\.3: dist\.attestations\.provenance is absent/,
+  ],
+  [
+    'manifest version: 404, then 200 attested -> re-read and VERIFIED, exit 0',
+    [...notFound, { status: 200, body: attested(CORE.name, CORE.version) }],
+    0,
+    /check: VERIFIED — 1 version\(s\) checked: 1 attested, 0 not published yet/,
+  ],
+  [
+    'manifest version: 404, then 200 unattested -> MISSING, exit 1',
+    [...notFound, { status: 200, body: versionDoc(CORE.name, CORE.version) }],
+    1,
+    /MISSING/,
+  ],
+  [
+    'manifest version: 200 unattested, then 503 -> MISSING, not UNVERIFIED, exit 1',
+    [
+      { status: 200, body: versionDoc(CORE.name, CORE.version) },
+      { status: 503, body: { error: 'Service Unavailable' } },
+    ],
+    1,
+    /MISSING/,
+  ],
+]) {
+  await withRegistry({ [CORE_PATH]: plan }, async (url) => {
+    const result = await runCheck({ url, published: [], changesetsPublished: 'false' });
+    check(
+      label,
+      result.code === expectCode && expectRe.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  });
+}
+
+// UNVERIFIED vs MISSING, on a run that published and on one that did not.
+// Only a run that published fails on an unreadable registry; MISSING fails both.
+const DOWN = [{ status: 503, body: { error: 'Service Unavailable' } }];
+for (const [label, published, changesetsPublished, routes, env, expect] of [
+  [
+    'published=true, registry down -> UNVERIFIED, exit 1',
+    [CORE],
+    'true',
+    { [CORE_PATH]: DOWN },
+    {},
+    { code: 1, re: /UNVERIFIED/, not: /not failing/ },
+  ],
+  [
+    'published=false, registry down -> UNVERIFIED warning, exit 0',
+    [],
+    'false',
+    { [CORE_PATH]: DOWN },
+    {},
+    {
+      code: 0,
+      re: /WARNING: provenance check: UNVERIFIED[\s\S]*Not failing: this run published nothing[\s\S]*UNVERIFIED, not failing/,
+      not: /check: VERIFIED/,
+    },
+  ],
+  [
+    'published=false, registry down, under GitHub Actions -> ::warning:: annotation, exit 0',
+    [],
+    'false',
+    { [CORE_PATH]: DOWN },
+    { GITHUB_ACTIONS: 'true' },
+    { code: 0, re: /::warning::provenance check: UNVERIFIED/, not: /check: VERIFIED/ },
+  ],
+  [
+    'published=true, version unattested -> MISSING, exit 1',
+    [CORE],
+    'true',
+    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)) },
+    {},
+    { code: 1, re: /MISSING/, not: /check: VERIFIED/ },
+  ],
+  [
+    'published=false, version unattested -> MISSING, exit 1',
+    [],
+    'false',
+    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)) },
+    {},
+    { code: 1, re: /MISSING/, not: /check: VERIFIED/ },
+  ],
+  [
+    'published=false, one unattested and one unreadable -> MISSING, exit 1',
+    [],
+    'false',
+    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)), [REACT_PATH]: DOWN },
+    {},
+    { code: 1, re: /MISSING[\s\S]*UNVERIFIED|UNVERIFIED[\s\S]*MISSING/, not: /not failing/ },
+  ],
+]) {
+  await withRegistry(routes, async (url) => {
+    const result = await runCheck({
+      url,
+      published,
+      changesetsPublished,
+      env: { GITHUB_ACTIONS: '', ...env },
+      workspace: Object.keys(routes).length > 1 ? BOTH_WORKSPACE : DEFAULT_WORKSPACE,
+    });
+    check(
+      label,
+      result.code === expect.code && expect.re.test(result.out) && !expect.not.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  });
+}
 
 // argv takes the same JSON as the environment.
 await withRegistry({ [CORE_PATH]: ok(attested(CORE.name, CORE.version)) }, async (url) => {

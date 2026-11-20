@@ -74,8 +74,13 @@ function matching(advisories, versions) {
  */
 function startService(mode, findings = {}) {
   const requests = [];
+  const lifetimes = [];
   const server = createServer((req, res) => {
     requests.push(req.url);
+    if (mode === 'hang') {
+      const arrived = Date.now();
+      res.on('close', () => lifetimes.push(Date.now() - arrived));
+    }
     if (mode === 'error') {
       res.writeHead(503);
       res.end(JSON.stringify({ error: 'Service Unavailable' }));
@@ -118,7 +123,7 @@ function startService(mode, findings = {}) {
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () =>
-      resolve({ server, requests, url: `http://127.0.0.1:${server.address().port}/` }),
+      resolve({ server, requests, lifetimes, url: `http://127.0.0.1:${server.address().port}/` }),
     );
   });
 }
@@ -151,6 +156,17 @@ const HANG_TIMEOUT_MS = '1000';
 const HANG_DEADLINE_MS = 15000;
 // Process start-up plus the fetch() cold start measured above, with room to spare.
 const STARTUP_ALLOWANCE_MS = 3000;
+/**
+ * Per-request lifetime, measured at the fake: from the moment a hung request
+ * arrives to the moment the client gives up and the connection closes. The
+ * client's timer starts before the request is sent (the AbortSignal exists
+ * before fetch()), so a lifetime is the timeout minus the time to get the
+ * request out, which includes fetch()'s cold start (measured max 385 ms under
+ * load). The two settings below give DISJOINT windows, so any single
+ * hard-coded timeout falls outside at least one of them.
+ */
+const HANG_SETTINGS_MS = [1500, 3000];
+const LIFETIME_WINDOW = (timeoutMs) => [timeoutMs - 700, timeoutMs + 300];
 
 function runGate({ url, lockfile, extraArgs = [], env = {}, deadlineMs = 60000, cwd }) {
   return new Promise((resolve) => {
@@ -203,9 +219,9 @@ function check(name, condition, detail) {
 }
 
 async function withService(mode, findings, fn) {
-  const { server, url, requests } = await startService(mode, findings);
+  const { server, url, requests, lifetimes } = await startService(mode, findings);
   try {
-    return await fn(url, requests);
+    return await fn(url, requests, lifetimes);
   } finally {
     server.close();
     server.closeAllConnections?.();
@@ -343,27 +359,27 @@ for (const mode of ['hang', 'error', 'degraded']) {
 }
 
 // The timeout path, asserted rather than logged: exactly AUDIT_RETRIES
-// requests, and about attempts x timeout of wall time. Two settings, so a
-// hard-coded timeout fails one of them: too short undercuts the lower bound,
-// too long overshoots the upper bound or the deadline.
-for (const timeoutMs of [Number(HANG_TIMEOUT_MS), Number(HANG_TIMEOUT_MS) * 2]) {
-  await withService('hang', {}, async (url, requests) => {
+// requests, each of which the gate abandons after its configured timeout.
+for (const timeoutMs of HANG_SETTINGS_MS) {
+  await withService('hang', {}, async (url, requests, lifetimes) => {
     const result = await runGate({
       url,
       lockfile: cleanLock,
       env: { AUDIT_TIMEOUT_MS: String(timeoutMs) },
       deadlineMs: HANG_DEADLINE_MS,
     });
-    const floor = 2 * timeoutMs - 50;
-    const ceiling = 2 * timeoutMs + STARTUP_ALLOWANCE_MS;
+    // Let the last connection's close event land.
+    await new Promise((r) => setTimeout(r, 50));
+    const [lo, hi] = LIFETIME_WINDOW(timeoutMs);
     check(
-      `service hang at ${timeoutMs} ms -> 2 requests, ${floor}..${ceiling} ms`,
+      `service hang at ${timeoutMs} ms -> 2 requests, each abandoned after ${lo}..${hi} ms`,
       result.code === 0 &&
         /UNDETERMINED/.test(result.out) &&
         requests.length === 2 &&
-        result.elapsedMs >= floor &&
-        result.elapsedMs <= ceiling,
-      `exit=${result.code} requests=${requests.length} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
+        lifetimes.length === 2 &&
+        lifetimes.every((ms) => ms >= lo && ms <= hi) &&
+        result.elapsedMs <= 2 * timeoutMs + STARTUP_ALLOWANCE_MS,
+      `exit=${result.code} requests=${requests.length} lifetimes=${lifetimes.join(',')}ms elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
   });
 }
@@ -496,6 +512,35 @@ await withService('healthy', {}, async (url) => {
     'both documents are audited (4 packages: 1 workspace + 3 package-manager)',
     result.code === 0 && /CLEAN — 4 packages checked/.test(result.out),
     `exit=${result.code} out=${result.out.trim()}`,
+  );
+});
+
+// Snapshot keys are matched to `packages` exactly first, then with only a
+// recognised trailing peer / patch suffix removed. A `(` inside the key itself
+// (a `file:` tarball named `widget(copy).tgz`) is part of the name, and
+// splitting at the first `(` reported a legitimate lockfile as inconsistent.
+await withService('healthy', {}, async (url) => {
+  const body =
+    `lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n\nimporters:\n\n  .:\n    dependencies:\n      widget:\n        specifier: file:widget(copy).tgz\n        version: file:widget(copy).tgz\n\n` +
+    `packages:\n\n  'widget@file:widget(copy).tgz':\n    resolution: {integrity: sha512-x, tarball: file:widget(copy).tgz}\n\n` +
+    `  'react-dom@19.0.0':\n    resolution: {integrity: sha512-x}\n\n  'react@19.0.0':\n    resolution: {integrity: sha512-x}\n\n` +
+    `  'patched@1.0.0':\n    resolution: {integrity: sha512-x}\n\n` +
+    `snapshots:\n\n  'widget@file:widget(copy).tgz': {}\n\n  'react-dom@19.0.0(react@19.0.0)': {}\n\n  'react@19.0.0': {}\n\n  'patched@1.0.0(patch_hash=abc123)': {}\n`;
+  const result = await runGate({ url, lockfile: writeLockfile(body) });
+  check(
+    'snapshot keys with a ( in the name, a peer suffix, and a patch suffix all resolve -> CLEAN, 4 packages',
+    result.code === 0 && /CLEAN — 4 packages checked/.test(result.out),
+    `exit=${result.code} out=${result.out.trim()}`,
+  );
+
+  // Stripping must be limited to a real suffix: an unrecognised trailing
+  // group does not make an orphan snapshot match.
+  const fake = `lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n\nimporters:\n\n  .: {}\n\npackages:\n\n  'react@19.0.0':\n    resolution: {integrity: sha512-x}\n\nsnapshots:\n\n  'react@19.0.0(not a suffix)': {}\n`;
+  const rejected = await runGate({ url, lockfile: writeLockfile(fake) });
+  check(
+    'a snapshot whose trailing group is not a peer/patch suffix -> refuses, exit 1',
+    rejected.code === 1 && /has no `packages` entry/.test(rejected.out),
+    `exit=${rejected.code} out=${rejected.out.trim()}`,
   );
 });
 
