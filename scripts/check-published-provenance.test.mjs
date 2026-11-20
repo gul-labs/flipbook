@@ -107,6 +107,14 @@ function makeWorkspace(packages) {
   return root;
 }
 
+/** Every environment variable the check reads as an input a case may omit. */
+const CHECK_INPUTS = new Set([
+  'HAS_CHANGESETS',
+  'CHANGESETS_PUBLISHED',
+  'PUBLISHED_PACKAGES',
+  'GITHUB_ACTIONS',
+]);
+
 function runCheck({
   url,
   published,
@@ -116,11 +124,17 @@ function runCheck({
   workspace = DEFAULT_WORKSPACE,
   changesetsPublished = 'true',
 }) {
+  // The check's inputs must come from the case, never from whoever runs this
+  // file: with `HAS_CHANGESETS=true` exported in the parent shell, the "signal
+  // absent" cases used to inherit it and exercise the versioning path instead.
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !CHECK_INPUTS.has(name)),
+  );
   return new Promise((resolve) => {
     const started = Date.now();
     const child = spawn(process.execPath, [CHECK, ...args], {
       env: {
-        ...process.env,
+        ...inherited,
         PROVENANCE_REGISTRY_URL: url,
         PROVENANCE_RETRIES: '3',
         PROVENANCE_BASE_DELAY_MS: '1',
