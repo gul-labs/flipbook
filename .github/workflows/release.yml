@@ -52,7 +52,9 @@ jobs:
       # release PR.
       contents: write
       pull-requests: write
-      # Required to sign the npm provenance attestation.
+      # Required to mint the OIDC token that npm trusted publishing exchanges
+      # for a short-lived publish credential, and from which pnpm's native
+      # publish produces the provenance attestation.
       id-token: write
     steps:
       - name: Checkout
@@ -132,7 +134,26 @@ jobs:
       # publish → publish-script, title → pr-title, commit → commit-message) and
       # stopped reading GITHUB_TOKEN from the environment — pass github-token.
       # A blind pin bump without these renames breaks the next publish.
+      #
+      # `NPM_CONFIG_PROVENANCE` used to live here and is deliberately gone. It
+      # was only load-bearing under pnpm 9/10, which shelled out to the npm CLI,
+      # and npm honours that variable. pnpm 11+ publishes natively and reads
+      # `provenance` ONLY from the `--provenance` CLI flag, not from the
+      # environment or `.npmrc`, and `changeset publish` invokes `pnpm publish`
+      # with a fixed argument list, so the flag cannot be passed.
+      # (gul-labs/any-llm 0.14.0, its first pnpm 11 release, shipped without an
+      # attestation for exactly this reason.)
+      #
+      # Provenance now comes from npm trusted publishing: pnpm attempts the OIDC
+      # exchange on every publish (gated on `id-token: write` above) and sets
+      # provenance from its result. That needs a trusted publisher configured on
+      # npmjs.com for EACH package against this repository and `release.yml`.
+      # Whether that is set up for @gullabs/flipbook-core and
+      # @gullabs/react-flipbook is not confirmed (see RELEASING.md). Until it is,
+      # a publish goes out through the token below WITHOUT provenance, and the
+      # next step turns the job red.
       - name: Create Release PR or Publish to npm
+        id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           version-script: pnpm version-packages
@@ -141,6 +162,28 @@ jobs:
           commit-message: 'chore: version packages'
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
+          # Auth fallback for packages without a trusted publisher. When both
+          # are available pnpm uses the OIDC exchange (any-llm 0.17.0 published
+          # with this same token present and carries an attestation), so the
+          # token does not suppress provenance.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
+
+      # A publish without provenance still succeeds, through the token above,
+      # so nothing else in this job would notice. Read the registry's record of
+      # every version just published and fail unless each carries
+      # `dist.attestations.provenance`. It cannot un-publish (npm versions are
+      # immutable); it makes the gap loud on the run that created it. The list
+      # goes in through the environment, never interpolated into the script.
+      #
+      # `published-packages` is the v2 output name (v1 called it
+      # `publishedPackages`; reading the old name yields an empty string, which
+      # the script rejects as BAD INPUT rather than passing). `!cancelled()`
+      # because changesets/action sets `published` and then throws when a later
+      # package in the sequence fails: the versions that did go out still need
+      # checking.
+      - name: Verify npm provenance on published packages
+        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' }}
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs['published-packages'] }}
+        run: node scripts/check-published-provenance.mjs

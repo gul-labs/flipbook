@@ -74,7 +74,9 @@ for (const dir of ['packages/core', 'packages/react']) {
 // allowlist is `allowBuilds` in pnpm-workspace.yaml: pnpm 11 removed
 // `onlyBuiltDependencies` and ignores the `pnpm` field in package.json, so an
 // allowlist in either of those places is dead config that reads as if it were
-// in force. Parsed, not grepped: a regex accepts a key that is commented out
+// in force. pnpm 12 rejects unknown workspace keys, but measured on 12.21.0 it
+// still accepts `onlyBuiltDependencies` without a word, so this check is what
+// catches it. Parsed, not grepped: a regex accepts a key that is commented out
 // or nested under another mapping.
 const require_ = createRequire(import.meta.url);
 let workspace;

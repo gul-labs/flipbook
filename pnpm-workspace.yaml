@@ -23,3 +23,16 @@ allowBuilds:
   sharp: true
   '@swc/core': true
   unrs-resolver: true
+
+# Supply-chain gate: refuse any version published less than 24 hours ago,
+# direct or transitive; most malicious releases are pulled within that window.
+# 1440 is pnpm 11+'s default, but set explicitly it is STRICT
+# (`minimumReleaseAgeStrict` defaults to true only when this is configured):
+# resolution fails instead of falling back to a too-new version. pnpm also
+# re-checks every lockfile entry against it on `--frozen-lockfile` installs, so
+# a lockfile written under a weaker policy is rejected in CI. Stating the value
+# here is also what a Dependabot `cooldown` should be kept in line with. A
+# Dependabot PR for a release under a day old fails the frozen install
+# (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION) until the release ages; re-run it
+# then rather than lowering this.
+minimumReleaseAge: 1440

@@ -258,6 +258,108 @@ await withService('healthy', {}, async (url) => {
   );
 });
 
+// pnpm 11+ with a pinned packageManager writes TWO YAML documents: an env
+// lockfile holding the pnpm binary, then the workspace lockfile. Both carry
+// lockfileVersion / importers / packages, so only the importer contents tell
+// them apart. Shaped after a real pnpm 12 lockfile.
+function envDocument(packageKeys) {
+  const entries = packageKeys
+    .map((k) => `  '${k}':\n    resolution: {integrity: sha512-x}\n`)
+    .join('\n');
+  return (
+    `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n` +
+    `    packageManagerDependencies:\n      pnpm:\n        specifier: 12.21.0\n        version: 12.21.0\n\n` +
+    `packages:\n\n${entries}`
+  );
+}
+
+function workspaceDocument(packageKeys) {
+  const entries = packageKeys
+    .map((k) => `  '${k}':\n    resolution: {integrity: sha512-x}\n`)
+    .join('\n');
+  return (
+    `---\nlockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n  excludeLinksFromLockfile: false\n\n` +
+    `importers:\n\n  .:\n    devDependencies:\n      minimist:\n        specifier: ^1.2.5\n        version: 1.2.5\n\n` +
+    `packages:\n\n${entries}`
+  );
+}
+
+function writeLockfile(body) {
+  const dir = mkdtempSync(join(tmpdir(), 'audit-lock-'));
+  const file = join(dir, 'pnpm-lock.yaml');
+  writeFileSync(file, body);
+  return file;
+}
+
+const PNPM_PACKAGES = ['pnpm@12.21.0', '@pnpm/exe.darwin-arm64@12.21.0'];
+
+await withService(
+  'healthy',
+  { minimist: [{ id: 5, severity: 'critical', title: 'Prototype Pollution' }] },
+  async (url) => {
+    // The shape pnpm 12 actually writes: env document first.
+    const pnpm12 = writeLockfile(
+      envDocument(PNPM_PACKAGES) + workspaceDocument(['minimist@1.2.5', 'react@19.0.0']),
+    );
+    const result = await runGate({ url, lockfile: pnpm12 });
+    check(
+      'pnpm 12 two-document lockfile -> audits the workspace document (finding reported)',
+      result.code === 1 && /VULNERABLE/.test(result.out) && /minimist/.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+
+    // Selection is by content, not position: same documents, reversed.
+    const reversed = writeLockfile(
+      workspaceDocument(['minimist@1.2.5', 'react@19.0.0']) + envDocument(PNPM_PACKAGES),
+    );
+    const rev = await runGate({ url, lockfile: reversed });
+    check(
+      'workspace document second -> still the one audited',
+      rev.code === 1 && /VULNERABLE/.test(rev.out) && /minimist/.test(rev.out),
+      `exit=${rev.code} out=${rev.out.trim()}`,
+    );
+  },
+);
+
+// The env document's packages are not workspace dependencies; they must not be
+// read IN PLACE of the workspace document, nor merged into it. The count is
+// the discriminator: the workspace document has one package, the env document
+// three, the two together four.
+await withService('healthy', {}, async (url) => {
+  const lockfile = writeLockfile(
+    envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
+  );
+  const result = await runGate({ url, lockfile });
+  check(
+    'only the workspace document is audited (1 package, not the env document or both)',
+    result.code === 0 && /CLEAN — 1 packages checked/.test(result.out),
+    `exit=${result.code} out=${result.out.trim()}`,
+  );
+});
+
+// Fail closed whenever the choice is not unambiguous.
+await withService('healthy', {}, async (url) => {
+  for (const [label, body] of [
+    ['only the env document', envDocument(PNPM_PACKAGES)],
+    [
+      'two workspace documents',
+      workspaceDocument(['react@19.0.0']) + workspaceDocument(['minimist@1.2.5']),
+    ],
+    ['an unrecognised extra document', `---\nfoo: bar\n${workspaceDocument(['react@19.0.0'])}`],
+    [
+      'a document with a YAML error',
+      `${envDocument(PNPM_PACKAGES)}---\nlockfileVersion: '9.0'\npackages: [unclosed\n`,
+    ],
+  ]) {
+    const result = await runGate({ url, lockfile: writeLockfile(body) });
+    check(
+      `multi-document lockfile with ${label} -> refuses, exit 1`,
+      result.code === 1 && !/CLEAN/.test(result.out) && /audit gate: lockfile/.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  }
+});
+
 // --prod uses pnpm's own resolution instead of the lockfile. Faked with a PATH
 // shim so the walker is exercised without needing a vulnerable prod tree.
 function makePnpmShim(stdout, exitCode = 0) {

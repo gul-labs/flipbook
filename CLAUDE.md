@@ -19,7 +19,7 @@ Upstream import points are tagged: `upstream-page-flip-2.0.7`, `upstream-react-p
 ## Commands
 
 ```bash
-pnpm install            # pnpm 10.34.9, Node >=22.18.0 (.nvmrc pins 26)
+pnpm install            # pnpm 12.21.0, Node >=22.18.0 (.nvmrc pins 26)
 pnpm test               # vitest run, both projects
 pnpm build              # tsup per package (see caveat below)
 pnpm typecheck          # tsc --noEmit per package
@@ -203,15 +203,25 @@ tears the book down mid-animation.
   cleanly and then silently disable every type-aware rule. tsup 9 no longer
   injects `baseUrl` into its declaration build, so the `ignoreDeprecations`
   workaround has been removed from `tsconfig.base.json`.
-- **The release path needs an `NPM_TOKEN` secret.** Publishing uses the token +
-  provenance path, matching `gul-labs/any-llm`. Moving to npm trusted publishing
-  is worthwhile but needs per-package setup on npmjs.com first — see
+- **Provenance needs npm trusted publishing, which is not confirmed set up.**
+  pnpm 12 publishes natively and ignores `NPM_CONFIG_PROVENANCE`, so an
+  attestation now comes only from the OIDC trusted-publisher exchange, matching
+  `gul-labs/any-llm`. Each package needs a trusted publisher on npmjs.com
+  (`gul-labs/flipbook`, `release.yml`) — an owner action. Until then the Release
+  job publishes through the `NPM_TOKEN` secret without provenance, and its
+  `scripts/check-published-provenance.mjs` step fails the job. See
   `RELEASING.md`.
-- **pnpm is 10.34.5, not 11.** pnpm 11 enables `minimumReleaseAge` by default,
-  which rejects lockfile entries for anything published in the last day — so CI
-  would fail `--frozen-lockfile` on someone else's release schedule. Note this
-  diverges from any-llm (pnpm 9 / Node 20); the fix there is to bring that repo
-  up, since Node 20 went end-of-life in April 2026.
+- **pnpm is 12, and `minimumReleaseAge: 1440` is explicit.** Nothing published
+  less than 24 hours ago may enter the lockfile, direct or transitive. Setting
+  the value explicitly makes it strict (resolution fails rather than falling
+  back to a too-new version), and frozen installs re-check every lockfile entry
+  against it — so a Dependabot PR for a release under a day old fails CI's
+  install until the release ages. Re-run it then; do not lower the setting.
+  pnpm 12 also writes a two-document `pnpm-lock.yaml` (the first document locks
+  pnpm itself); `scripts/audit.mjs` selects the workspace document by content
+  and fails closed if that is ambiguous. pnpm 12 rejects unknown keys in
+  `pnpm-workspace.yaml`, the only place pnpm settings live (`allowBuilds`, not
+  `onlyBuiltDependencies`; no `pnpm` field in `package.json`; no `.npmrc`).
 
 ## Deferred design work
 
@@ -222,6 +232,6 @@ a headless state controller is the right one, which is not the obvious answer.
 
 ## Releasing and licensing
 
-Publishing runs from `.github/workflows/release.yml` (Changesets + npm provenance) on pushes to `main`, never from a laptop. Both packages move together (`fixed` in `.changeset/config.json`). The first 3.0.0 publish comes from the already-committed versions with no pending changeset; later releases go through `pnpm exec changeset`.
+Publishing runs from `.github/workflows/release.yml` (Changesets + npm trusted publishing for provenance, checked after publish) on pushes to `main`, never from a laptop. Both packages move together (`fixed` in `.changeset/config.json`). The first 3.0.0 publish comes from the already-committed versions with no pending changeset; later releases go through `pnpm exec changeset`.
 
 `LICENSE`/`NOTICE` must keep the upstream Nodlik MIT notices verbatim alongside GulLabs' own, and the README must keep the "forked from" attribution. Every engine fix should reference its upstream issue in `CHANGELOG.md`, and any change to the drop-in `HTMLFlipBook` prop surface must be documented in `MIGRATION.md`.

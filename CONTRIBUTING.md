@@ -8,7 +8,11 @@ Only [@atifgul99](https://github.com/atifgul99) can push or merge to `main`. Eve
 
 **Node `>=22.18.0`** (`.nvmrc` pins **26**; `engines` in the root `package.json`
 is `>=22.18.0`). Use `nvm use` / `fnm use` so local Node matches CI. Package
-manager is **pnpm 10.34.9** (see `packageManager` in the root `package.json`).
+manager is **pnpm 12.21.0** (see `packageManager` in the root `package.json`;
+any pnpm on your PATH switches to it). pnpm settings live only in
+`pnpm-workspace.yaml`. It refuses versions published less than a day ago
+(`minimumReleaseAge`), so a just-released dependency cannot be added until it
+has aged.
 
 ```bash
 pnpm install

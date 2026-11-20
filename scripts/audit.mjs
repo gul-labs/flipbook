@@ -108,18 +108,73 @@ function undetermined(reason) {
 }
 
 /**
+ * The one YAML document in `text` that is the workspace lockfile.
+ *
+ * pnpm 11+ with a pinned `packageManager` writes TWO documents: first an "env
+ * lockfile" whose only importer entries are `packageManagerDependencies` /
+ * `configDependencies` (it locks the pnpm binary itself), then the workspace
+ * lockfile. Both carry `lockfileVersion`, `importers` and `packages`, so
+ * neither position nor top-level keys tell them apart; the importer contents
+ * do. `yaml.parse` refuses a multi-document file outright ("Source contains
+ * multiple documents"), which is how this gate broke under pnpm 12.
+ *
+ * Fails closed: a YAML error in any document, a document that is neither kind,
+ * no workspace document, or more than one, all refuse to choose. Auditing the
+ * wrong document would report CLEAN for packages that were never checked.
+ */
+function selectLockfileDocument(text, path) {
+  const ENV_IMPORTER_KEYS = new Set(['packageManagerDependencies', 'configDependencies']);
+  const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isEnvDocument = (doc) =>
+    isMapping(doc.importers) &&
+    Object.keys(doc.importers).length > 0 &&
+    Object.values(doc.importers).every(
+      (importer) =>
+        isMapping(importer) &&
+        Object.keys(importer).length > 0 &&
+        Object.keys(importer).every((key) => ENV_IMPORTER_KEYS.has(key)),
+    );
+
+  const workspaceDocuments = [];
+  for (const [index, document] of yaml.parseAllDocuments(text).entries()) {
+    if (document.errors.length > 0) {
+      fail(`lockfile ${path} document ${index + 1}: ${document.errors[0].message}`);
+    }
+    const doc = document.toJS();
+    if (doc === null || doc === undefined) continue; // an empty `---` section
+    if (!isMapping(doc) || !('lockfileVersion' in doc)) {
+      fail(
+        `lockfile ${path} document ${index + 1} is not a pnpm lockfile document; refusing to guess`,
+      );
+    }
+    if (!isEnvDocument(doc)) workspaceDocuments.push(doc);
+  }
+  if (workspaceDocuments.length === 0) {
+    fail(`lockfile ${path} has no workspace lockfile document; refusing to report clean`);
+  }
+  if (workspaceDocuments.length > 1) {
+    fail(
+      `lockfile ${path} has ${workspaceDocuments.length} workspace lockfile documents; ` +
+        'refusing to pick one',
+    );
+  }
+  return workspaceDocuments[0];
+}
+
+/**
  * Every resolved package in the workspace, as name -> Set(versions).
  * pnpm lockfile v9 keys look like `name@version` or
  * `@scope/name@version(peer@1.2.3)`; the parenthetical is a peer-resolution
  * suffix and is not part of the version.
  */
 function readInstalledPackages(path) {
-  let lock;
+  let text;
   try {
-    lock = yaml.parse(readFileSync(path, 'utf8'));
+    text = readFileSync(path, 'utf8');
   } catch (error) {
     fail(`could not read lockfile ${path}: ${error?.message ?? error}`);
   }
+  const lock = selectLockfileDocument(text, path);
   const keys = Object.keys(lock?.packages ?? {});
   if (keys.length === 0) fail(`lockfile ${path} lists no packages; refusing to report clean`);
 
