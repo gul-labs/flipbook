@@ -6,9 +6,9 @@ Only [@atifgul99](https://github.com/atifgul99) can push or merge to `main`. Eve
 
 ## Dev setup
 
-**Node `>=22.18.0`** (`.nvmrc` pins **24**; `engines` in the root `package.json`
+**Node `>=22.18.0`** (`.nvmrc` pins **26**; `engines` in the root `package.json`
 is `>=22.18.0`). Use `nvm use` / `fnm use` so local Node matches CI. Package
-manager is **pnpm 10.34.5** (see `packageManager` in the root `package.json`).
+manager is **pnpm 10.34.9** (see `packageManager` in the root `package.json`).
 
 ```bash
 pnpm install
@@ -37,7 +37,7 @@ pnpm quality:full       # quality:ci + examples + full audit
 
 CI runs **`verify`** (`quality:ci` on packages) and a separate **`examples`** job (`quality:examples`). The release gate uses the packages bar only.
 
-The Next.js example can flake on Node versions other than `.nvmrc`; pin Node 24 before blaming the library.
+The Next.js example can flake on Node versions other than `.nvmrc`; pin Node 26 before blaming the library.
 
 Demo-only Next lint rules (`@next/eslint-plugin-next`) are intentionally **not** in the monorepo ESLint config — examples share the React/TS bar (LINT-007).
 

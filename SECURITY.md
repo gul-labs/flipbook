@@ -39,7 +39,7 @@ Correct method names use camelCase `loadFromHTML` / `updateFromHtml` (not `loadF
 - Publish uses an **npm automation token** stored as the `NPM_TOKEN` repository secret, plus [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`id-token: write` + `NPM_CONFIG_PROVENANCE=true`). Provenance is signed with the Actions OIDC identity, but the publish itself authenticates with the long-lived token — this repository is **not** yet on npm trusted publishing. Migrating requires per-package setup on npmjs.com first; see [`RELEASING.md`](./RELEASING.md).
 - CI runs `gitleaks` on every pull request and on `main`.
 - Dependabot opens weekly PRs for npm and GitHub Actions.
-- Install lifecycle scripts are allow-listed via `pnpm.onlyBuiltDependencies` in the root `package.json`.
+- Dependency install lifecycle scripts are blocked unless allow-listed in `allowBuilds` in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml). `pnpm preflight` fails if the allowlist is missing or if a stale `onlyBuiltDependencies` / `package.json` `pnpm` field reappears.
 
 ## Supply chain
 

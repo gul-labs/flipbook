@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { PageFlip } from '@gullabs/flipbook-core';
 import { makePages, sizeElement } from './html-book-fixture';
+import { cssValue } from './cssom';
 import { testFlip, testRender } from './engine-access';
 
 /**
@@ -115,15 +116,23 @@ describe('the facing page rotates WITH a closing hard cover', () => {
     const shallow = hardBackFold(30);
     const deep = hardBackFold(300);
 
-    const angleOf = (book: PageFlip): number => {
-      const m = /rotateY\(([-\d.]+)deg\)/.exec(inner(book).leftPage!.getElement().style.transform);
-      expect(m, 'no rotateY on the left leaf').not.toBeNull();
+    const rotateYOf = (transform: string): number => {
+      const m = /rotateY\(([-\d.]+)deg\)/.exec(transform);
+      expect(m, `no rotateY in ${JSON.stringify(transform)}`).not.toBeNull();
       return Number(m![1]);
     };
+    const angleOf = (book: PageFlip): number =>
+      rotateYOf(inner(book).leftPage!.getElement().style.transform);
+    // The expected angle goes through the same CSSOM serialisation as the
+    // drawn one (see ./cssom), so the comparison stays exact.
+    const expectedAngle = (book: PageFlip): number =>
+      rotateYOf(
+        cssValue('transform', `rotateY(${180 + inner(book).flippingPage!.getHardAngle()}deg)`),
+      );
 
     expect(angleOf(shallow)).not.toBe(angleOf(deep));
-    expect(angleOf(shallow)).toBe(180 + inner(shallow).flippingPage!.getHardAngle());
-    expect(angleOf(deep)).toBe(180 + inner(deep).flippingPage!.getHardAngle());
+    expect(angleOf(shallow)).toBe(expectedAngle(shallow));
+    expect(angleOf(deep)).toBe(expectedAngle(deep));
   });
 });
 

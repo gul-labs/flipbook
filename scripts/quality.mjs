@@ -70,11 +70,45 @@ for (const dir of ['packages/core', 'packages/react']) {
   }
 }
 
-// pnpm >= 10 blocks dependency install scripts unless allowlisted, and reads
-// the allowlist from pnpm-workspace.yaml (not package.json, as in pnpm 9).
-const workspace = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
-if (!/^onlyBuiltDependencies:\s*$/m.test(workspace)) {
-  console.error('pnpm-workspace.yaml must define an onlyBuiltDependencies allowlist');
+// pnpm >= 10 blocks dependency install scripts unless allowlisted. The
+// allowlist is `allowBuilds` in pnpm-workspace.yaml: pnpm 11 removed
+// `onlyBuiltDependencies` and ignores the `pnpm` field in package.json, so an
+// allowlist in either of those places is dead config that reads as if it were
+// in force. Parsed, not grepped: a regex accepts a key that is commented out
+// or nested under another mapping.
+const require_ = createRequire(import.meta.url);
+let workspace;
+try {
+  workspace = require_('yaml').parse(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'));
+} catch (error) {
+  console.error(`pnpm-workspace.yaml is not parseable YAML: ${String(error)}`);
+  process.exit(1);
+}
+const allowBuilds = workspace?.allowBuilds;
+if (
+  allowBuilds === null ||
+  typeof allowBuilds !== 'object' ||
+  Array.isArray(allowBuilds) ||
+  !Object.values(allowBuilds).some((v) => v === true) ||
+  !Object.values(allowBuilds).every((v) => typeof v === 'boolean')
+) {
+  console.error(
+    'pnpm-workspace.yaml must define `allowBuilds` as a mapping of package name to true/false,\n' +
+      `with at least one package allowed (got ${JSON.stringify(allowBuilds)}).`,
+  );
+  process.exit(1);
+}
+if (workspace && 'onlyBuiltDependencies' in workspace) {
+  console.error(
+    'pnpm-workspace.yaml still sets `onlyBuiltDependencies`, which pnpm 11 removed. Use `allowBuilds`.',
+  );
+  process.exit(1);
+}
+const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+if ('pnpm' in rootManifest) {
+  console.error(
+    'package.json has a `pnpm` field. pnpm 11+ ignores it; move the setting to pnpm-workspace.yaml.',
+  );
   process.exit(1);
 }
 
@@ -83,7 +117,6 @@ if (!/^onlyBuiltDependencies:\s*$/m.test(workspace)) {
 // which is most of the quality bar. This is why the workspace is pinned to
 // TypeScript 6 rather than the newest release; make it a loud failure, not a
 // comment someone reads later.
-const require_ = createRequire(import.meta.url);
 
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);

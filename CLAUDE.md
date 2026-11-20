@@ -19,7 +19,7 @@ Upstream import points are tagged: `upstream-page-flip-2.0.7`, `upstream-react-p
 ## Commands
 
 ```bash
-pnpm install            # pnpm 10.34.5, Node >=22.18.0 (.nvmrc pins 24)
+pnpm install            # pnpm 10.34.9, Node >=22.18.0 (.nvmrc pins 26)
 pnpm test               # vitest run, both projects
 pnpm build              # tsup per package (see caveat below)
 pnpm typecheck          # tsc --noEmit per package

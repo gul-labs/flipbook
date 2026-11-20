@@ -3,7 +3,7 @@ packages:
   - 'examples/*'
   - 'fixtures/*'
 
-# pnpm 10 defaults `auto-install-peers` to true, which pulls in OPTIONAL peers
+# pnpm defaults `autoInstallPeers` to true, which pulls in OPTIONAL peers
 # nothing here asks for. That is how `stylus` (an optional peer of vite) got
 # installed, dragging in css-parse -> css -> source-map-resolve ->
 # decode-uri-component and a DoS advisory Dependabot cannot fix: every
@@ -14,9 +14,12 @@ packages:
 autoInstallPeers: false
 
 # Dependency install scripts are blocked by default (pnpm >= 10); allow only
-# the toolchain packages that genuinely need a native build step.
-onlyBuiltDependencies:
-  - 'esbuild'
-  - 'sharp'
-  - '@swc/core'
-  - 'unrs-resolver'
+# the toolchain packages that genuinely need a native build step. `allowBuilds`
+# replaces `onlyBuiltDependencies`, which pnpm 11 removed; pnpm 10.34 already
+# reads it. This file is the only place pnpm settings live: pnpm 11+ ignores
+# the `pnpm` field in package.json and reads `.npmrc` only for registry/auth.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  '@swc/core': true
+  unrs-resolver: true

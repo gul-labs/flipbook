@@ -43,6 +43,7 @@ import { Orientation, PageDensity } from '@gullabs/flipbook-core';
 import type { PageFlip } from '@gullabs/flipbook-core';
 import { Page } from '../src/Page/Page';
 import { makeHtmlBook } from './html-book-fixture';
+import { cssValue } from './cssom';
 import { testFlip, testRender, testPage } from './engine-access';
 import { FlipDirection } from '../src/Flip/Flip';
 
@@ -368,7 +369,9 @@ describe('X1 — the frame is re-anchored for DRAWING too, not only measuring', 
 
     const under = (testPage(book, 1) as Page | null)?.getElement();
     expect(under?.classList.contains('--shown')).toBe(true);
-    expect(under?.style.transform).toContain(`translate3d(${edges.left}px,0px,0)`);
+    expect(under?.style.transform).toContain(
+      cssValue('transform', `translate3d(${edges.left}px,0px,0)`),
+    );
   });
 });
 
