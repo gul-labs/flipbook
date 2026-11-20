@@ -6,13 +6,13 @@ This monorepo uses [Changesets](https://github.com/changesets/changesets) for ve
 
 This repository is public, and every release is meant to carry an [npm provenance](https://docs.npmjs.com/generating-provenance-statements) attestation. Under pnpm 12 that attestation comes **only** from [npm trusted publishing](https://docs.npmjs.com/trusted-publishers), and trusted publishing is **required** for it.
 
-**Required setup on npmjs.com, per package — not confirmed to exist yet.** For each of `@gullabs/flipbook-core` and `@gullabs/react-flipbook`: package → Settings → Trusted Publisher → GitHub Actions, organization `gul-labs`, repository `flipbook`, workflow file `release.yml`. Only the package owner can do this. **Until it is done for a package, the Release job cannot publish it at all**: there is no npm token in the workflow any more, so a failed trusted-publisher exchange leaves pnpm with no valid credential and the upload is rejected (rehearsed below). That is deliberate — no trusted publisher means no publish, never an unattested one. npm documents that a newly created trusted-publisher configuration must complete its first successful publish within 2 days or it expires (delete and recreate it then), so set it up when a release is ready to go out.
+**Required setup on npmjs.com, per package — not confirmed to exist yet.** For each of `@gullabs/flipbook-core` and `@gullabs/react-flipbook`: package → Settings → Trusted Publisher → GitHub Actions, organization `gul-labs`, repository `flipbook`, workflow file `release.yml`, with `npm publish` enabled under the trusted publisher's allowed actions. Only the package owner can do this. **Until it is done for a package, the Release job cannot publish it at all**: there is no npm token in the workflow any more, so a failed trusted-publisher exchange leaves pnpm with no valid credential and the upload is rejected (rehearsed below). That is deliberate — no trusted publisher means no publish, never an unattested one. npm documents that a newly created trusted-publisher configuration must complete its first successful publish within 2 days or it expires (delete and recreate it then), so set it up when a release is ready to go out.
 
 Why there is no token: when a trusted publisher is configured, pnpm uses the OIDC exchange even with a token present (any-llm 0.17.0, and the rehearsal below), so a token's only effect would be to make an **unattested** publish possible whenever the exchange fails. The `NPM_TOKEN` repository secret is no longer read by any workflow; once both trusted publishers exist the owner can delete it (and should revoke the npm token behind it).
 
 Why there is no `NPM_CONFIG_PROVENANCE` either: pnpm 9/10 published by shelling out to the npm CLI, which honoured that variable. pnpm 11+ publishes natively and reads `provenance` only from the `--provenance` CLI flag — not from the environment and not from `.npmrc` — and `changeset publish` calls `pnpm publish` with a fixed argument list, so the flag cannot be passed. `gul-labs/any-llm` hit exactly this: its first pnpm 11 release (0.14.0) shipped without an attestation, and it moved to trusted publishing.
 
-An unattested version can still reach the registry without a token: pnpm 12.21.0 checks the package's visibility (`GET /-/package/<name>/visibility`) with the exchanged token before signing, and if that lookup fails it prints `[WARN] Skipped setting provenance: …` and uploads anyway, exit 0 (rehearsed). The `Verify npm provenance` step (`scripts/check-published-provenance.mjs`, self-tested by `pnpm test:provenance-gate` in `quality:ci`) is what catches that. On every Release run it reads `https://registry.npmjs.org/<name>/<version>` for every version changesets reports as published this run, **and** for every public workspace package at its manifest version; a version the registry has must carry an SLSA `dist.attestations.provenance`. A version this run did not report and the registry does not have is "not published yet". The second half means a version published unattested by an earlier, partly failed run keeps the job red on every later run until a new version supersedes it, instead of dropping out of the list on a rerun. Every answer short of "attested" is re-read within the same bounded window, and once a read has shown a version exists, a later 404 never turns it back into "not published yet": the result is the last document seen. If the registry cannot be read, the step fails on a run that published (`CHANGESETS_PUBLISHED=true`) and only warns (`::warning::`) on a run that published nothing, such as the one that opens the Version Packages PR; a version the registry positively shows without provenance fails every run. To check a release by hand: `npm view @gullabs/<pkg>@<version> dist.attestations`.
+An unattested version can still reach the registry without a token: pnpm 12.21.0 checks the package's visibility (`GET /-/package/<name>/visibility`) with the exchanged token before signing, and if that lookup fails it prints `[WARN] Skipped setting provenance: …` and uploads anyway, exit 0 (rehearsed). The `Verify npm provenance` step (`scripts/check-published-provenance.mjs`, self-tested by `pnpm test:provenance-gate` in `quality:ci`) is what catches that. On every Release run it reads `https://registry.npmjs.org/<name>/<version>` for every version changesets reports as published this run, **and** for every public workspace package at its manifest version; a version the registry has must carry an SLSA `dist.attestations.provenance`. A version this run did not report and the registry does not have is "not published yet". The second half means a version published unattested by an earlier, partly failed run keeps the job red on every later run until a new version supersedes it, instead of dropping out of the list on a rerun. Every answer short of "attested" is re-read within the same bounded window, and once a read has shown a version exists, a later 404 never turns it back into "not published yet": the result is the last document seen. If the registry cannot be read, the step only warns (`::warning::`) on the versioning path, which it knows from changesets/action's `has-changesets` output being `true` (pending changesets: the action opened the Version Packages PR and did not run the publish script). On the publish path it fails, even when that attempt uploaded nothing: a rerun after a partial failure reports `published=false`, but the versions an earlier attempt uploaded still have to be proven. A missing or unrecognised `has-changesets` counts as the publish path. A version the registry positively shows without provenance fails every run. To check a release by hand: `npm view @gullabs/<pkg>@<version> dist.attestations`.
 
 The Release job also only runs when the CI run's commit (`workflow_run.head_sha`, which it checks out and builds) is the commit GitHub attributes the run to (`github.sha`, documented for `workflow_run` as the "Last commit on default branch"). If `main` moved on while CI ran, the stale run is skipped and the run for the newer commit releases, so the provenance never names a commit other than the one that was built.
 
@@ -22,7 +22,7 @@ That skip is deliberate. In the Actions UI it shows as a **Release** workflow ru
 
 1. Normally do nothing: the CI run for the newer tip of `main` triggers its own Release, and that one runs.
 2. If that CI run **failed**, fix `main` (the Release never runs on a red CI). Once a commit on `main` goes green, its Release publishes the deferred versions.
-3. If CI for the tip did not run or was cancelled, **re-run CI on the tip** of `main`. Re-running CI on the _older_ commit does not help while it is not the tip: its Release would be skipped again.
+3. CI runs on every push to `main`, so "CI did not run on the tip" in practice means its run was **cancelled or failed**. Re-run that run from the Actions UI (open the CI run for the tip commit, "Re-run jobs"). There is no manual trigger for CI (`ci.yml` has no `workflow_dispatch`), so if there is no run to re-run, the next push to `main` releases. Re-running CI on the _older_ commit does not help while it is not the tip: its Release would be skipped again.
 
 There is no job that reports a deferred release; check that the Release run for the current tip of `main` is green after merging a Version Packages PR.
 
@@ -162,10 +162,22 @@ from an existing package's settings (npmjs.com → Packages → the package →
 Settings → Trusted publishing); there is no documented way to register one for a
 name that has never been published. So for a new `@gullabs/*` package:
 
-1. The package owner publishes the first version by hand (the emergency manual
-   path below, with their own npm login), deliberately and once.
+1. The package owner publishes the first version by hand, once, with their own
+   npm login, for **that package only**. Do not use `changeset publish` (the
+   emergency path below): it uploads every unpublished package in the
+   workspace. Instead, from a clean checkout of the release commit:
+
+   ```bash
+   pnpm install --frozen-lockfile
+   cd packages/<new-package>
+   pnpm publish --access public   # runs prepack (build), uploads this package only
+   ```
+
 2. The owner adds the trusted publisher for that package (organization
-   `gul-labs`, repository `flipbook`, workflow `release.yml`). npm documents
+   `gul-labs`, repository `flipbook`, workflow `release.yml`) and grants it
+   publish permission: in npm's "Allowed actions" for the trusted publisher,
+   enable `npm publish` (npm documents `npm stage publish` as always allowed
+   and `npm publish` / `npm dist-tag` as separate choices). npm documents
    that a new trusted-publisher configuration must complete its first
    successful publish within 2 days or it expires, so do this when a release
    is ready to go out through CI.
@@ -176,9 +188,9 @@ name that has never been published. So for a new `@gullabs/*` package:
 That first hand-published version has no provenance, and the Release job's
 provenance check reports it MISSING on every run until a CI-published version
 supersedes it. Make the bootstrap version a placeholder that is superseded
-promptly, or accept the red until then. Both existing packages also need the
-trusted publisher, with publish permission for the owner, before this workflow
-can publish them at all.
+promptly, or accept the red until then. Both existing packages also need their
+trusted publisher, with `npm publish` enabled in its allowed actions, before
+this workflow can publish them at all.
 
 ## Manual release (emergency)
 

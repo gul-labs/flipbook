@@ -38,15 +38,23 @@
  * ------------------------------
  *   VERIFIED     every version checked is attested or not published -> exit 0
  *   MISSING      a version exists and has no provenance                -> exit 1, always
- *   UNVERIFIED   a version document could not be read after retries   -> exit 1 when
- *                CHANGESETS_PUBLISHED is 'true'; otherwise a loud warning
- *                (`::warning::` under GitHub Actions) and exit 0
+ *   UNVERIFIED   a version could not be established after retries       -> exit 1 on the
+ *                PUBLISH path; a loud warning (`::warning::` under GitHub
+ *                Actions) and exit 0 only on the VERSIONING path
  *   BAD INPUT    the inputs are absent or malformed                    -> exit 1
  *
- * UNVERIFIED fails closed on a run that published: a version left the building
- * in this run, so there is no later moment that will prove it. On a run that
- * published nothing (the one that only opens the Version Packages PR), a
- * registry outage must not turn the job red; the next run looks again. MISSING
+ * Which path a run took comes from changesets/action's own `has-changesets`
+ * output (HAS_CHANGESETS). The pinned v2.1.2 sets it before choosing a branch:
+ * 'true' means there were pending changesets, so it ran the version script and
+ * opened the Version Packages PR and did NOT run the publish script; 'false'
+ * means it ran the publish script. A registry outage on the versioning path
+ * must not turn the job red; the next run looks again. On the publish path
+ * UNVERIFIED fails closed whether or not this attempt uploaded anything: a
+ * rerun after a partial failure uploads nothing and reports `published=false`,
+ * yet the versions an earlier attempt uploaded still have to be proven.
+ * `published` is therefore NOT the signal. HAS_CHANGESETS absent or anything
+ * but exactly 'true'/'false' is treated as the publish path (fail closed), and
+ * so is the contradictory `has-changesets=true` with `published=true`. MISSING
  * is positive evidence that a version lacks provenance and fails every run.
  *
  * STATED LIMIT: this reads npm's `dist.attestations` record; it does not
@@ -57,6 +65,8 @@
  *
  * Inputs (environment; argv[2] may carry PUBLISHED_PACKAGES instead):
  *   CHANGESETS_PUBLISHED   'true' or 'false': changesets/action's `published`.
+ *   HAS_CHANGESETS         changesets/action's `has-changesets` ('true' / 'false';
+ *                          anything else is treated as the publish path).
  *   PUBLISHED_PACKAGES     its `published-packages` JSON array of {name,version};
  *                          must be non-empty when CHANGESETS_PUBLISHED is 'true'.
  *   PROVENANCE_WORKSPACE   repository root to read packages/* from (default: cwd).
@@ -240,6 +250,7 @@ function provenanceProblem(doc, name, version) {
  */
 async function check({ name, version, mustExist }) {
   let evidence = null; // the last version document seen without provenance
+  let lastError = null; // the last read that was neither a document nor a 404
   let last;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
     const result = await fetchVersionDoc(name, version);
@@ -251,12 +262,17 @@ async function check({ name, version, mustExist }) {
       evidence = { state: 'missing', detail: problem };
       last = evidence;
     } else if (result.notFound) {
+      // "Not published yet" needs EVERY read to have been a 404; one failed
+      // read means the registry was not consistently answering.
       last =
         evidence ??
         (mustExist
           ? { state: 'unverified', detail: 'HTTP 404 (reported as published, not visible)' }
-          : { state: 'unpublished', detail: 'HTTP 404: not published yet' });
+          : lastError
+            ? { state: 'unverified', detail: `${lastError}, then HTTP 404` }
+            : { state: 'unpublished', detail: 'HTTP 404: not published yet' });
     } else {
+      lastError = result.error;
       last = evidence ?? { state: 'unverified', detail: result.error };
       if (!result.retryable) return last;
     }
@@ -299,30 +315,35 @@ if (outcome.missing.length > 0) {
       'See RELEASING.md for the trusted-publisher setup.',
   );
 }
-// UNVERIFIED fails only a run that published: then a version left the
-// building in this run and must be proven. On a run that published nothing
-// (e.g. one that only opened the Version Packages PR), a registry outage is a
-// loud warning, not a red job; the next run looks again. MISSING is positive
-// evidence and fails every run.
-const publishedThisRun = process.env.CHANGESETS_PUBLISHED === 'true';
+// UNVERIFIED is a warning only on the versioning path (see the header): the
+// action reported pending changesets, so the publish script did not run. Any
+// other value of HAS_CHANGESETS, including none, is the publish path.
+const hasChangesets = process.env.HAS_CHANGESETS;
+const versioningOnly = hasChangesets === 'true' && process.env.CHANGESETS_PUBLISHED !== 'true';
+if (hasChangesets !== 'true' && hasChangesets !== 'false') {
+  console.error(
+    `provenance check: HAS_CHANGESETS=${JSON.stringify(hasChangesets)} is not 'true'/'false'; ` +
+      'treating this as the publish path (an unreadable registry fails the run).',
+  );
+}
 if (outcome.unverified.length > 0) {
   const lines = [
     `provenance check: UNVERIFIED — could not establish ${outcome.unverified.length} version(s) after ${RETRIES} attempts:`,
     ...outcome.unverified.map((u) => `  ${u}`),
     'This is NOT a pass: provenance was not checked for these versions.',
   ];
-  if (publishedThisRun || outcome.missing.length > 0) {
+  if (!versioningOnly || outcome.missing.length > 0) {
     for (const l of lines) console.error(l);
   } else {
     lines.push(
-      'Not failing: this run published nothing (CHANGESETS_PUBLISHED=false); the next Release run checks again.',
+      'Not failing: this run took the versioning path (HAS_CHANGESETS=true, the publish script did not run); the next Release run checks again.',
     );
     for (const l of lines) {
       console.error(process.env.GITHUB_ACTIONS ? `::warning::${l}` : `WARNING: ${l}`);
     }
   }
 }
-if (outcome.missing.length > 0 || (outcome.unverified.length > 0 && publishedThisRun)) {
+if (outcome.missing.length > 0 || (outcome.unverified.length > 0 && !versioningOnly)) {
   process.exit(1);
 }
 if (outcome.unverified.length > 0) {

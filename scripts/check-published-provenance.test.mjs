@@ -580,78 +580,141 @@ for (const [label, plan, expectCode, expectRe] of [
   });
 }
 
-// UNVERIFIED vs MISSING, on a run that published and on one that did not.
-// Only a run that published fails on an unreadable registry; MISSING fails both.
+// UNVERIFIED vs MISSING, by the path the run took. The warning-only case is
+// exactly HAS_CHANGESETS=true (versioning path: the publish script did not
+// run) with published=false. Everything else is the publish path and fails
+// closed on an unreadable registry; MISSING fails everywhere.
 const DOWN = [{ status: 503, body: { error: 'Service Unavailable' } }];
-for (const [label, published, changesetsPublished, routes, env, expect] of [
-  [
-    'published=true, registry down -> UNVERIFIED, exit 1',
-    [CORE],
-    'true',
-    { [CORE_PATH]: DOWN },
-    {},
-    { code: 1, re: /UNVERIFIED/, not: /not failing/ },
-  ],
-  [
-    'published=false, registry down -> UNVERIFIED warning, exit 0',
-    [],
-    'false',
-    { [CORE_PATH]: DOWN },
-    {},
-    {
-      code: 0,
-      re: /WARNING: provenance check: UNVERIFIED[\s\S]*Not failing: this run published nothing[\s\S]*UNVERIFIED, not failing/,
-      not: /check: VERIFIED/,
-    },
-  ],
-  [
-    'published=false, registry down, under GitHub Actions -> ::warning:: annotation, exit 0',
-    [],
-    'false',
-    { [CORE_PATH]: DOWN },
-    { GITHUB_ACTIONS: 'true' },
-    { code: 0, re: /::warning::provenance check: UNVERIFIED/, not: /check: VERIFIED/ },
-  ],
-  [
-    'published=true, version unattested -> MISSING, exit 1',
-    [CORE],
-    'true',
-    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)) },
-    {},
-    { code: 1, re: /MISSING/, not: /check: VERIFIED/ },
-  ],
-  [
-    'published=false, version unattested -> MISSING, exit 1',
-    [],
-    'false',
-    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)) },
-    {},
-    { code: 1, re: /MISSING/, not: /check: VERIFIED/ },
-  ],
-  [
-    'published=false, one unattested and one unreadable -> MISSING, exit 1',
-    [],
-    'false',
-    { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)), [REACT_PATH]: DOWN },
-    {},
-    { code: 1, re: /MISSING[\s\S]*UNVERIFIED|UNVERIFIED[\s\S]*MISSING/, not: /not failing/ },
-  ],
-]) {
-  await withRegistry(routes, async (url) => {
+const REGISTRY_STATES = {
+  attested: ok(attested(CORE.name, CORE.version)),
+  missing: ok(versionDoc(CORE.name, CORE.version)),
+  unreachable: DOWN,
+};
+for (const hasChangesets of ['true', 'false', null]) {
+  for (const changesetsPublished of ['true', 'false']) {
+    for (const [registry, plan] of Object.entries(REGISTRY_STATES)) {
+      const warnOnly = hasChangesets === 'true' && changesetsPublished === 'false';
+      const expectCode =
+        registry === 'attested' ? 0 : registry === 'missing' ? 1 : warnOnly ? 0 : 1;
+      await withRegistry({ [CORE_PATH]: plan }, async (url) => {
+        const result = await runCheck({
+          url,
+          published: changesetsPublished === 'true' ? [CORE] : [],
+          changesetsPublished,
+          env: {
+            GITHUB_ACTIONS: '',
+            ...(hasChangesets === null ? {} : { HAS_CHANGESETS: hasChangesets }),
+          },
+        });
+        const shape =
+          registry === 'attested'
+            ? /check: VERIFIED/.test(result.out)
+            : registry === 'missing'
+              ? /MISSING/.test(result.out)
+              : warnOnly
+                ? /WARNING: provenance check: UNVERIFIED[\s\S]*versioning path[\s\S]*UNVERIFIED, not failing/.test(
+                    result.out,
+                  )
+                : /UNVERIFIED/.test(result.out) && !/not failing/.test(result.out);
+        check(
+          `has-changesets=${hasChangesets ?? 'absent'} published=${changesetsPublished} registry=${registry} -> exit ${expectCode}`,
+          result.code === expectCode && shape,
+          `exit=${result.code} out=${result.out.trim()}`,
+        );
+      });
+    }
+  }
+}
+
+// The rerun Codex describes: an earlier attempt uploaded both versions and
+// failed; this attempt finds them in the package list, uploads nothing and
+// reports published=false, and the exact-version endpoint is down. Publish
+// path, so it must stay red.
+await withRegistry({ [CORE_PATH]: DOWN, [REACT_PATH]: DOWN }, async (url) => {
+  const result = await runCheck({
+    url,
+    published: [],
+    changesetsPublished: 'false',
+    workspace: BOTH_WORKSPACE,
+    env: { HAS_CHANGESETS: 'false', GITHUB_ACTIONS: '' },
+  });
+  check(
+    'publish-path rerun: published=false, has-changesets=false, exact-version endpoint down -> exit 1',
+    result.code === 1 && /UNVERIFIED/.test(result.out) && !/not failing/.test(result.out),
+    `exit=${result.code} out=${result.out.trim()}`,
+  );
+});
+
+// An unrecognised signal is the publish path, and says so.
+await withRegistry({ [CORE_PATH]: DOWN }, async (url) => {
+  const result = await runCheck({
+    url,
+    published: [],
+    changesetsPublished: 'false',
+    env: { HAS_CHANGESETS: 'yes', GITHUB_ACTIONS: '' },
+  });
+  check(
+    'HAS_CHANGESETS=yes -> treated as the publish path, said so, exit 1',
+    result.code === 1 && /treating this as the publish path/.test(result.out),
+    `exit=${result.code} out=${result.out.trim()}`,
+  );
+});
+
+// The warning is an Actions annotation under GitHub Actions.
+await withRegistry({ [CORE_PATH]: DOWN }, async (url) => {
+  const result = await runCheck({
+    url,
+    published: [],
+    changesetsPublished: 'false',
+    env: { HAS_CHANGESETS: 'true', GITHUB_ACTIONS: 'true' },
+  });
+  check(
+    'versioning path, registry down, under GitHub Actions -> ::warning:: annotation, exit 0',
+    result.code === 0 && /::warning::provenance check: UNVERIFIED/.test(result.out),
+    `exit=${result.code} out=${result.out.trim()}`,
+  );
+});
+
+// One MISSING and one unreadable on the versioning path: MISSING wins.
+await withRegistry(
+  { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)), [REACT_PATH]: DOWN },
+  async (url) => {
     const result = await runCheck({
       url,
-      published,
-      changesetsPublished,
-      env: { GITHUB_ACTIONS: '', ...env },
-      workspace: Object.keys(routes).length > 1 ? BOTH_WORKSPACE : DEFAULT_WORKSPACE,
+      published: [],
+      changesetsPublished: 'false',
+      workspace: BOTH_WORKSPACE,
+      env: { HAS_CHANGESETS: 'true', GITHUB_ACTIONS: '' },
     });
     check(
-      label,
-      result.code === expect.code && expect.re.test(result.out) && !expect.not.test(result.out),
+      'versioning path, one unattested and one unreadable -> MISSING, exit 1',
+      result.code === 1 && /MISSING/.test(result.out) && !/not failing/.test(result.out),
       `exit=${result.code} out=${result.out.trim()}`,
     );
-  });
-}
+  },
+);
+
+// "Not published yet" needs EVERY read to be a 404: one failed read first
+// leaves it unverified.
+await withRegistry(
+  { [CORE_PATH]: [{ status: 503, body: { error: 'Service Unavailable' } }, ...notFound] },
+  async (url, seen) => {
+    const result = await runCheck({
+      url,
+      published: [],
+      changesetsPublished: 'false',
+      env: { HAS_CHANGESETS: 'false', GITHUB_ACTIONS: '' },
+    });
+    check(
+      'manifest version: 503, then 404, 404 -> UNVERIFIED (not "not published yet"), exit 1',
+      result.code === 1 &&
+        /UNVERIFIED[\s\S]*HTTP 503, then HTTP 404/.test(result.out) &&
+        !/not published yet/.test(result.out) &&
+        seen.length === 3,
+      `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
+    );
+  },
+);
 
 // argv takes the same JSON as the environment.
 await withRegistry({ [CORE_PATH]: ok(attested(CORE.name, CORE.version)) }, async (url) => {

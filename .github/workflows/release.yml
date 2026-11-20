@@ -200,11 +200,14 @@ jobs:
       # (npm versions are immutable). Inputs go in through the environment,
       # never interpolated into the script.
       #
-      # A registry that cannot be read fails this step only on a run that
-      # published (CHANGESETS_PUBLISHED=true). On a run that published nothing,
-      # such as the one that opens the Version Packages PR, it is a
-      # `::warning::` and the step passes; the next run looks again. A version
-      # the registry positively shows without provenance fails every run.
+      # A registry that cannot be read is a `::warning::` (step passes) ONLY on
+      # the versioning path: the action's `has-changesets` output is 'true', so
+      # it opened the Version Packages PR and did not run the publish script.
+      # On the publish path it fails, even when this attempt uploaded nothing
+      # (a rerun after a partial failure reports `published=false` while an
+      # earlier attempt's uploads still need proving), and so does a missing
+      # or unrecognised `has-changesets`. A version the registry positively
+      # shows without provenance fails every run.
       #
       # `published-packages` is the v2 output name (v1 called it
       # `publishedPackages`). `!cancelled()` because changesets/action sets
@@ -214,5 +217,6 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           CHANGESETS_PUBLISHED: ${{ steps.changesets.outputs.published }}
+          HAS_CHANGESETS: ${{ steps.changesets.outputs.has-changesets }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs['published-packages'] }}
         run: node scripts/check-published-provenance.mjs
