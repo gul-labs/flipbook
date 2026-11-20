@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { PageFlip } from '@gullabs/flipbook-core';
 import { makePages, sizeElement } from './html-book-fixture';
 import { cssValue } from './cssom';
@@ -68,6 +68,18 @@ type Internals = {
 
 const inner = (book: PageFlip): Internals => testRender(book) as unknown as Internals;
 
+/** rotateY of a declaration's (serialised) transform. */
+const rotateYOfStyle = (style: CSSStyleDeclaration): number => {
+  const m = /rotateY\(([-\d.]+)deg\)/.exec(style.transform);
+  if (!m) throw new Error(`no rotateY in ${JSON.stringify(style.transform)}`);
+  return Number(m[1]);
+};
+const cssStyleOf = (transform: string): CSSStyleDeclaration => {
+  const probe = document.createElement('div');
+  probe.style.setProperty('transform', transform);
+  return probe.style;
+};
+
 /** Fold inward from an edge and paint one frame. */
 function fold(book: PageFlip, edge: 'left' | 'right', depth = 60): void {
   const rect = book.getBoundsRect();
@@ -133,6 +145,47 @@ describe('the facing page rotates WITH a closing hard cover', () => {
     expect(angleOf(shallow)).not.toBe(angleOf(deep));
     expect(angleOf(shallow)).toBe(expectedAngle(shallow));
     expect(angleOf(deep)).toBe(expectedAngle(deep));
+  });
+
+  test('the angle the renderer WRITES is exactly 180 + the cover angle, unrounded', () => {
+    // The CSSOM serialises to six significant digits, so the assertion above
+    // cannot see an error smaller than that (a renderer adding 0.00001deg
+    // passes it). Observe the raw value handed to the CSSOM instead: a
+    // pass-through spy on `setProperty`, which is how Page.draw writes its
+    // declarations. Nothing is stubbed; every write still lands.
+    const writes: Array<{ style: CSSStyleDeclaration; value: string }> = [];
+    const original = CSSStyleDeclaration.prototype.setProperty;
+    const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty').mockImplementation(function (
+      this: CSSStyleDeclaration,
+      property,
+      value,
+      priority,
+    ) {
+      if (property === 'transform' && typeof value === 'string')
+        writes.push({ style: this, value });
+      original.call(this, property, value, priority);
+    });
+    try {
+      for (const depth of [30, 300]) {
+        writes.length = 0;
+        const book = hardBackFold(depth);
+        const style = inner(book).leftPage!.getElement().style;
+        const own = writes.filter((w) => w.style === style);
+        expect(own.length, 'no transform write observed on the left leaf').toBeGreaterThan(0);
+        const raw = own[own.length - 1]!.value;
+        const m = /rotateY\(([-+\d.eE]+)deg\)/.exec(raw);
+        expect(m, `no rotateY in the written value ${JSON.stringify(raw)}`).not.toBeNull();
+        // Exact, unrounded: the number the renderer formatted, against the
+        // number it was asked to draw.
+        expect(Number(m![1])).toBe(180 + inner(book).flippingPage!.getHardAngle());
+        // And the CSSOM kept that write (the serialised angle matches it).
+        expect(rotateYOfStyle(style)).toBe(
+          rotateYOfStyle(cssStyleOf(`rotateY(${Number(m![1])}deg)`)),
+        );
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

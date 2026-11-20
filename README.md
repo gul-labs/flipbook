@@ -442,7 +442,7 @@ node is the only supported mount target.
 
 ## Development
 
-Node `>=22` (`.nvmrc` pins 26). Package manager is **pnpm**.
+Develop on Node 26 (`.nvmrc`; the dev toolchain supports `^22.22.2 || ^24.15.0 || >=26.0.0`, verified on 26). The published packages themselves need Node `>=22.18.0`. Package manager is **pnpm**.
 
 ```bash
 pnpm install

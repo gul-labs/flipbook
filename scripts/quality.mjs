@@ -106,6 +106,62 @@ if (workspace && 'onlyBuiltDependencies' in workspace) {
   );
   process.exit(1);
 }
+
+// The approved set is pinned exactly. An allow entry for a package that has no
+// build script today is a standing permission for whatever later arrives
+// under that name, so a new `true` entry is a reviewed change to this list,
+// not something an install prompt can add. `false` entries (explicit denials)
+// are harmless and allowed.
+const APPROVED_BUILDS = ['esbuild'];
+const allowed = Object.entries(allowBuilds)
+  .filter(([, v]) => v === true)
+  .map(([k]) => k)
+  .sort();
+if (JSON.stringify(allowed) !== JSON.stringify(APPROVED_BUILDS)) {
+  console.error(
+    `pnpm-workspace.yaml allowBuilds permits ${JSON.stringify(allowed)}; the approved set is ` +
+      `${JSON.stringify(APPROVED_BUILDS)}.\n` +
+      'Allowing a dependency build script is a security decision: update APPROVED_BUILDS in\n' +
+      'scripts/quality.mjs in the same reviewed change, with the reason.',
+  );
+  process.exit(1);
+}
+
+// pnpm 12's documented ways around the allowlist (settings reference, "Build"):
+//   dangerouslyAllowAllBuilds: true   runs every dependency's build script;
+//   permissions.<pkg>.build: true     outranks allowBuilds (added in 12.11);
+//   strictDepBuilds: false            turns an unreviewed build script from a
+//                                     failed install into a warning.
+if (
+  workspace?.dangerouslyAllowAllBuilds !== undefined &&
+  workspace.dangerouslyAllowAllBuilds !== false
+) {
+  console.error('pnpm-workspace.yaml sets `dangerouslyAllowAllBuilds`; it bypasses allowBuilds.');
+  process.exit(1);
+}
+if (workspace?.strictDepBuilds !== undefined && workspace.strictDepBuilds !== true) {
+  console.error(
+    'pnpm-workspace.yaml sets `strictDepBuilds` to something other than true; an unreviewed\n' +
+      'build script must fail the install, not warn.',
+  );
+  process.exit(1);
+}
+if (workspace?.permissions !== undefined) {
+  const permissions = workspace.permissions;
+  const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  // A `build` capability other than an explicit `false` counts as granted.
+  const granted = isMapping(permissions)
+    ? Object.entries(permissions)
+        .filter(([, p]) => !isMapping(p) || ('build' in p && p.build !== false))
+        .map(([k]) => k)
+    : ['<unparseable permissions>'];
+  if (granted.some((k) => !APPROVED_BUILDS.includes(k))) {
+    console.error(
+      `pnpm-workspace.yaml \`permissions\` grants builds outside the approved set: ${JSON.stringify(granted)}.`,
+    );
+    process.exit(1);
+  }
+}
 const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 if ('pnpm' in rootManifest) {
   console.error(

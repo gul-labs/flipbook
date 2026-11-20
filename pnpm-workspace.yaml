@@ -13,16 +13,28 @@ packages:
 # to stop installing optional peers at all.
 autoInstallPeers: false
 
-# Dependency install scripts are blocked by default (pnpm >= 10); allow only
-# the toolchain packages that genuinely need a native build step. `allowBuilds`
-# replaces `onlyBuiltDependencies`, which pnpm 11 removed; pnpm 10.34 already
-# reads it. This file is the only place pnpm settings live: pnpm 11+ ignores
-# the `pnpm` field in package.json and reads `.npmrc` only for registry/auth.
+# Dependency install scripts are blocked (pnpm >= 10), and with pnpm 12's
+# default `strictDepBuilds: true` an unlisted build script FAILS the install.
+# Allow only what a clean install actually runs: esbuild's postinstall is the
+# only dependency build script in this tree (measured on a clean macOS
+# install, 2026-11-20). sharp, @swc/core and unrs-resolver used to be listed
+# with no build script present; an unused entry is a standing permission for
+# whatever later arrives under that name, so they are gone. `pnpm preflight`
+# pins this exact set and rejects the global opt-outs (see
+# scripts/quality.mjs). `allowBuilds` replaces `onlyBuiltDependencies`, which
+# pnpm 11 removed. This file is the only place pnpm settings live: pnpm 11+
+# ignores the `pnpm` field in package.json and reads `.npmrc` only for
+# registry/auth.
 allowBuilds:
   esbuild: true
-  sharp: true
-  '@swc/core': true
-  unrs-resolver: true
+
+# `pnpm run` / `pnpm exec` (so every package script, the husky hooks and the
+# Playwright webServer) refuse to run when node_modules is out of date with the
+# lockfile, instead of pnpm 12's default of installing first. An implicit
+# install from a git hook or a test server is a non-frozen install: it can
+# rewrite pnpm-lock.yaml, and when it fails it can leave node_modules half
+# removed (seen in the publish rehearsal). Run `pnpm install` yourself.
+verifyDepsBeforeRun: error
 
 # Supply-chain gate: refuse any version published less than 24 hours ago,
 # direct or transitive; most malicious releases are pulled within that window.
@@ -35,6 +47,9 @@ allowBuilds:
 # window, so Dependabot version updates never propose a release that the
 # frozen install would reject (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION).
 # Dependabot security updates ignore that cooldown; one for a fix under a day
-# old fails until the fix ages or is added to `minimumReleaseAgeExclude`.
-# Do not lower this to make such a PR pass.
+# old fails until the fix ages or the patched version is listed in
+# `minimumReleaseAgeExclude`. `pnpm audit --fix` adds it there (pnpm docs,
+# cli/audit "--fix"; observed on 12.21.0 against a local fake advisory
+# service: "1 entries were added to minimumReleaseAgeExclude"). Do not lower
+# this to make such a PR pass.
 minimumReleaseAge: 1440

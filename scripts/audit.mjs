@@ -49,8 +49,9 @@
  *
  * Usage: node scripts/audit.mjs [--audit-level=high] [--lockfile=pnpm-lock.yaml]
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 
 const require_ = createRequire(import.meta.url);
 const yaml = require_('yaml');
@@ -126,21 +127,39 @@ function undetermined(reason) {
  * command it replaces. The package manager runs in CI with the publish
  * token, so it is in scope.
  *
+ * Both kinds are recognised POSITIVELY, never by elimination:
+ *   workspace  a `settings` mapping (pnpm always writes it there) and a
+ *              non-empty `importers` mapping;
+ *   env        no `settings`, and a non-empty `importers` mapping whose every
+ *              importer holds only `packageManagerDependencies` /
+ *              `configDependencies`.
+ * A document that is neither, for instance an env-like document whose
+ * `importers` is empty or missing, is refused rather than taken for the
+ * workspace: that is how a lockfile holding only pnpm could otherwise audit
+ * clean having checked nothing of the workspace.
+ *
+ * In every document, each `snapshots` key (peer suffix removed) must name a
+ * `packages` entry. That holds for every real lockfile checked (this repo's
+ * pnpm 12 and pnpm 10 lockfiles, gul-labs/any-llm's pnpm 12 lockfile), and the
+ * collector reads `packages`, so a dependency present only in `snapshots`
+ * would otherwise be skipped silently.
+ *
  * Fails closed: a YAML error in any document, a document that is neither kind,
- * no workspace document, more than one workspace document, or more than one
- * env document, all refuse to choose. Auditing the wrong document would report
- * CLEAN for packages that were never checked.
+ * an inconsistent snapshot, no workspace document, more than one workspace
+ * document, or more than one env document, all refuse to choose. Auditing the
+ * wrong document would report CLEAN for packages that were never checked.
  */
 function classifyLockfileDocuments(text, path) {
   const ENV_IMPORTER_KEYS = new Set(['packageManagerDependencies', 'configDependencies']);
   const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const nonEmptyMapping = (v) => isMapping(v) && Object.keys(v).length > 0;
+  const isWorkspaceDocument = (doc) => isMapping(doc.settings) && nonEmptyMapping(doc.importers);
   const isEnvDocument = (doc) =>
-    isMapping(doc.importers) &&
-    Object.keys(doc.importers).length > 0 &&
+    !('settings' in doc) &&
+    nonEmptyMapping(doc.importers) &&
     Object.values(doc.importers).every(
       (importer) =>
-        isMapping(importer) &&
-        Object.keys(importer).length > 0 &&
+        nonEmptyMapping(importer) &&
         Object.keys(importer).every((key) => ENV_IMPORTER_KEYS.has(key)),
     );
 
@@ -157,7 +176,26 @@ function classifyLockfileDocuments(text, path) {
         `lockfile ${path} document ${index + 1} is not a pnpm lockfile document; refusing to guess`,
       );
     }
-    (isEnvDocument(doc) ? envDocuments : workspaceDocuments).push(doc);
+    const kind = isWorkspaceDocument(doc) ? 'workspace' : isEnvDocument(doc) ? 'env' : null;
+    if (kind === null) {
+      fail(
+        `lockfile ${path} document ${index + 1} is neither a workspace document (settings + ` +
+          'importers) nor a package-manager document (importers holding only ' +
+          'packageManagerDependencies/configDependencies); refusing to guess',
+      );
+    }
+    if (doc.snapshots !== undefined && !isMapping(doc.snapshots)) {
+      fail(`lockfile ${path} document ${index + 1}: \`snapshots\` is not a mapping`);
+    }
+    const packageKeys = new Set(Object.keys(isMapping(doc.packages) ? doc.packages : {}));
+    const orphan = Object.keys(doc.snapshots ?? {}).find((k) => !packageKeys.has(k.split('(')[0]));
+    if (orphan !== undefined) {
+      fail(
+        `lockfile ${path} document ${index + 1}: snapshot ${JSON.stringify(orphan)} has no ` +
+          '`packages` entry, so it would not be audited; refusing to report clean',
+      );
+    }
+    (kind === 'env' ? envDocuments : workspaceDocuments).push(doc);
   }
   if (envDocuments.length > 1) {
     fail(
@@ -304,8 +342,39 @@ async function readProductionPackages() {
   return packages;
 }
 
+/**
+ * `--prod` combines two sources: the dependency tree `pnpm ls` reports for the
+ * workspace containing the current directory, and the package-manager document
+ * of `--lockfile`. Both must describe the same workspace, so a `--lockfile`
+ * other than that workspace's own `pnpm-lock.yaml` is refused rather than
+ * mixing one checkout's pnpm with another's tree.
+ */
+function assertOwnLockfile(path) {
+  let dir = resolve(process.cwd());
+  while (!existsSync(join(dir, 'pnpm-workspace.yaml'))) {
+    const parent = dirname(dir);
+    if (parent === dir) fail('--prod: no pnpm-workspace.yaml above the current directory');
+    dir = parent;
+  }
+  const own = join(dir, 'pnpm-lock.yaml');
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  if (real(path) !== real(own)) {
+    fail(
+      `--prod reads the dependency tree of the workspace at ${dir}, so --lockfile must be its ` +
+        `own ${own}, not ${resolve(path)}`,
+    );
+  }
+}
+
 // The package manager is audited in both modes, as `pnpm audit` does: `pnpm
 // ls --prod` never lists it, so its lockfile document is added explicitly.
+if (args.includes('--prod')) assertOwnLockfile(lockfilePath);
 const lockfile = readLockfile(lockfilePath);
 const installed = args.includes('--prod')
   ? addLockfilePackages(lockfile.env, await readProductionPackages())

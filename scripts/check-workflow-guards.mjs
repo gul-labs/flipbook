@@ -4,8 +4,9 @@
  * fork.
  *
  * The Release workflow runs on `workflow_run`, which is the "pwn request"
- * trigger: it executes in the BASE repository with full secrets — `NPM_TOKEN`
- * and `contents: write` — and it fires for CI runs triggered by
+ * trigger: it executes in the BASE repository with full privileges —
+ * `contents: write`, and `id-token: write`, which mints the npm publish
+ * credential through trusted publishing — and it fires for CI runs triggered by
  * `pull_request`, which `ci.yml` accepts from anywhere including forks.
  *
  * The `branches: [main]` filter on a `workflow_run` matches `head_branch`, and
@@ -25,7 +26,7 @@
  * semantically unguarded release, because a substring can occur:
  *
  *   - inside a `#` comment (YAML never evaluates it),
- *   - on a DIFFERENT job than the one holding `NPM_TOKEN`,
+ *   - on a DIFFERENT job than the one that publishes,
  *   - inside `always() || <the real condition>`, which is always true,
  *   - as a step-level `if:`, which does not stop the job from checking out and
  *     installing the attacker's commit before that step is reached.
@@ -199,6 +200,12 @@ const REQUIRED = [
     'the commit must come from this repository, not a fork',
   ],
   ["github.event.workflow_run.head_branch == 'main'", 'and from main specifically'],
+  [
+    'github.event.workflow_run.head_sha == github.sha',
+    'the commit the job checks out and builds (head_sha) must be the commit the run is ' +
+      'attributed to: for workflow_run, GITHUB_SHA is the "Last commit on default branch", ' +
+      'and that is the source commit a provenance attestation names',
+  ],
 ];
 const REQUIRED_CANONICAL = REQUIRED.map(([expr, why]) => [canonicalConjunct(expr), expr, why]);
 
@@ -231,7 +238,7 @@ if (publishingJobIds.length === 0) {
   process.exit(1);
 }
 
-// The trigger has to still be the one the four guards were derived for. If the
+// The trigger has to still be the one the five guards were derived for. If the
 // workflow moves to `on: push`, these particular conditions are the wrong
 // question and the gate must be re-derived rather than silently pass.
 const on = workflow.on ?? workflow[true];
@@ -242,7 +249,7 @@ const hasWorkflowRun =
     (typeof on === 'object' && !Array.isArray(on) && 'workflow_run' in on));
 if (!hasWorkflowRun) {
   fail(
-    'release.yml no longer triggers on `workflow_run`. The four guards this gate ' +
+    'release.yml no longer triggers on `workflow_run`. The five guards this gate ' +
       'asserts are specific to that trigger; re-derive them before removing it.',
   );
 }
@@ -409,9 +416,10 @@ if (failures.length > 0) {
   console.error(`Release workflow guard check FAILED (${workflowPath}):\n`);
   for (const f of failures) console.error(`  ${f}\n`);
   console.error(
-    'Without all four conditions on the publishing job, a fork PR whose branch is named\n' +
-      '`main` can reach a job holding NPM_TOKEN and contents: write, and publish arbitrary\n' +
-      'code as @gullabs/*. See the comment above the `if:` in release.yml.',
+    'Without the first four conditions on the publishing job, a fork PR whose branch is\n' +
+      'named `main` can reach a job holding publish credentials and contents: write, and\n' +
+      'publish arbitrary code as @gullabs/*. Without the fifth, a stale run builds an older\n' +
+      'commit than the one its provenance names. See the comment above the `if:` in release.yml.',
   );
   process.exit(1);
 }

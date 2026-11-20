@@ -17,11 +17,13 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'audit.mjs');
+const semver = createRequire(import.meta.url)('semver');
 
 const CANARY_ADVISORY = {
   id: 1523,
@@ -31,14 +33,36 @@ const CANARY_ADVISORY = {
   url: 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm',
 };
 
-/** A lockfile containing the given `name@version` keys. */
+/**
+ * A single-document (pnpm 10 shaped) workspace lockfile with the given
+ * `name@version` keys in `packages` and `snapshots`, as pnpm writes them.
+ */
 function makeLockfile(keys) {
   const dir = mkdtempSync(join(tmpdir(), 'audit-lock-'));
   const file = join(dir, 'pnpm-lock.yaml');
   const entries = keys.map((k) => `  '${k}':\n    resolution: {integrity: sha512-x}\n`).join('\n');
-  const body = `lockfileVersion: '9.0'\n\npackages:\n\n${entries}`;
+  const snapshots = keys.map((k) => `  '${k}': {}\n`).join('');
+  const body =
+    `lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n  excludeLinksFromLockfile: false\n\n` +
+    `importers:\n\n  .: {}\n\npackages:\n\n${entries}\nsnapshots:\n\n${snapshots}`;
   writeFileSync(file, body);
   return file;
+}
+
+/**
+ * Advisories the fake returns for `name` given the versions the request asked
+ * about: only those whose `vulnerable_versions` one of the requested versions
+ * satisfies, as the real bulk endpoint matches. An advisory whose range is not
+ * a valid semver range is passed through untouched, so the gate's own handling
+ * of malformed advisories stays testable.
+ */
+function matching(advisories, versions) {
+  return (advisories ?? []).filter(
+    (a) =>
+      typeof a.vulnerable_versions !== 'string' ||
+      semver.validRange(a.vulnerable_versions) === null ||
+      versions.some((v) => semver.satisfies(v, a.vulnerable_versions)),
+  );
 }
 
 /**
@@ -49,7 +73,9 @@ function makeLockfile(keys) {
  *   hang      never responds
  */
 function startService(mode, findings = {}) {
+  const requests = [];
   const server = createServer((req, res) => {
+    requests.push(req.url);
     if (mode === 'error') {
       res.writeHead(503);
       res.end(JSON.stringify({ error: 'Service Unavailable' }));
@@ -72,11 +98,19 @@ function startService(mode, findings = {}) {
         } catch {
           /* an unparseable request gets no findings */
         }
-        const answered = Object.fromEntries(
-          Object.entries(findings).filter(([name]) => Object.hasOwn(asked, name)),
-        );
+        // Per name AND version, the canary included: a gate that sends the
+        // wrong version of anything gets no advisory back for it.
+        // A `lodash` entry in `findings` REPLACES the canary advisory, which is
+        // how the malformed-canary cases below are built.
+        const all = { lodash: [CANARY_ADVISORY], ...findings };
+        const answered = {};
+        for (const [name, advisories] of Object.entries(all)) {
+          const versions = Array.isArray(asked[name]) ? asked[name] : [];
+          const hit = matching(advisories, versions);
+          if (hit.length > 0) answered[name] = hit;
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ lodash: [CANARY_ADVISORY], ...answered }));
+        res.end(JSON.stringify(answered));
       });
       return;
     }
@@ -84,7 +118,7 @@ function startService(mode, findings = {}) {
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () =>
-      resolve({ server, url: `http://127.0.0.1:${server.address().port}/` }),
+      resolve({ server, requests, url: `http://127.0.0.1:${server.address().port}/` }),
     );
   });
 }
@@ -115,8 +149,10 @@ const REQUEST_BUDGET_MS = '10000';
  */
 const HANG_TIMEOUT_MS = '1000';
 const HANG_DEADLINE_MS = 15000;
+// Process start-up plus the fetch() cold start measured above, with room to spare.
+const STARTUP_ALLOWANCE_MS = 3000;
 
-function runGate({ url, lockfile, extraArgs = [], env = {}, deadlineMs = 60000 }) {
+function runGate({ url, lockfile, extraArgs = [], env = {}, deadlineMs = 60000, cwd }) {
   return new Promise((resolve) => {
     const started = Date.now();
     const child = spawn(
@@ -134,6 +170,7 @@ function runGate({ url, lockfile, extraArgs = [], env = {}, deadlineMs = 60000 }
           ...env,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
+        ...(cwd ? { cwd } : {}),
       },
     );
     let out = '';
@@ -166,9 +203,9 @@ function check(name, condition, detail) {
 }
 
 async function withService(mode, findings, fn) {
-  const { server, url } = await startService(mode, findings);
+  const { server, url, requests } = await startService(mode, findings);
   try {
-    return await fn(url);
+    return await fn(url, requests);
   } finally {
     server.close();
     server.closeAllConnections?.();
@@ -194,7 +231,16 @@ await withService('healthy', {}, async (url) => {
 
 await withService(
   'healthy',
-  { minimist: [{ id: 2, severity: 'critical', title: 'Prototype Pollution' }] },
+  {
+    minimist: [
+      {
+        id: 2,
+        severity: 'critical',
+        title: 'Prototype Pollution',
+        vulnerable_versions: '>=1.2.0 <1.2.6',
+      },
+    ],
+  },
   async (url) => {
     const vuln = await runGate({ url, lockfile: vulnerableLock });
     check(
@@ -208,7 +254,11 @@ await withService(
 // Below-threshold findings must not fail a --audit-level=high gate.
 await withService(
   'healthy',
-  { minimist: [{ id: 3, severity: 'low', title: 'Minor issue' }] },
+  {
+    minimist: [
+      { id: 3, severity: 'low', title: 'Minor issue', vulnerable_versions: '>=1.2.0 <1.2.6' },
+    ],
+  },
   async (url) => {
     const low = await runGate({ url, lockfile: vulnerableLock });
     check(
@@ -267,12 +317,15 @@ for (const mode of ['hang', 'error', 'degraded']) {
     mode === 'hang'
       ? { env: { AUDIT_TIMEOUT_MS: HANG_TIMEOUT_MS }, deadlineMs: HANG_DEADLINE_MS }
       : { env: {} };
-  await withService(mode, {}, async (url) => {
+  await withService(mode, {}, async (url, requests) => {
     const result = await runGate({ url, lockfile: cleanLock, ...timing });
     check(
-      `service ${mode} -> UNDETERMINED, never reported as CLEAN`,
-      result.code === 0 && /UNDETERMINED/.test(result.out) && !/CLEAN/.test(result.out),
-      `exit=${result.code} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
+      `service ${mode} -> UNDETERMINED after exactly 2 attempts, never reported as CLEAN`,
+      result.code === 0 &&
+        /UNDETERMINED/.test(result.out) &&
+        !/CLEAN/.test(result.out) &&
+        requests.length === 2,
+      `exit=${result.code} requests=${requests.length} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
 
     const strict = await runGate({
@@ -285,6 +338,32 @@ for (const mode of ['hang', 'error', 'degraded']) {
       `service ${mode} + AUDIT_REQUIRE_VERDICT=1 -> exit 1`,
       strict.code === 1 && /UNDETERMINED/.test(strict.out),
       `exit=${strict.code} out=${strict.out.trim()}`,
+    );
+  });
+}
+
+// The timeout path, asserted rather than logged: exactly AUDIT_RETRIES
+// requests, and about attempts x timeout of wall time. Two settings, so a
+// hard-coded timeout fails one of them: too short undercuts the lower bound,
+// too long overshoots the upper bound or the deadline.
+for (const timeoutMs of [Number(HANG_TIMEOUT_MS), Number(HANG_TIMEOUT_MS) * 2]) {
+  await withService('hang', {}, async (url, requests) => {
+    const result = await runGate({
+      url,
+      lockfile: cleanLock,
+      env: { AUDIT_TIMEOUT_MS: String(timeoutMs) },
+      deadlineMs: HANG_DEADLINE_MS,
+    });
+    const floor = 2 * timeoutMs - 50;
+    const ceiling = 2 * timeoutMs + STARTUP_ALLOWANCE_MS;
+    check(
+      `service hang at ${timeoutMs} ms -> 2 requests, ${floor}..${ceiling} ms`,
+      result.code === 0 &&
+        /UNDETERMINED/.test(result.out) &&
+        requests.length === 2 &&
+        result.elapsedMs >= floor &&
+        result.elapsedMs <= ceiling,
+      `exit=${result.code} requests=${requests.length} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
   });
 }
@@ -358,7 +437,16 @@ const PNPM_PACKAGES = ['pnpm@12.21.0', '@pnpm/exe.darwin-arm64@12.21.0'];
 
 await withService(
   'healthy',
-  { minimist: [{ id: 5, severity: 'critical', title: 'Prototype Pollution' }] },
+  {
+    minimist: [
+      {
+        id: 5,
+        severity: 'critical',
+        title: 'Prototype Pollution',
+        vulnerable_versions: '>=1.2.0 <1.2.6',
+      },
+    ],
+  },
   async (url) => {
     // The shape pnpm 12 actually writes: env document first.
     const pnpm12 = writeLockfile(
@@ -420,6 +508,25 @@ await withService('healthy', {}, async (url) => {
       workspaceDocument(['react@19.0.0']) + workspaceDocument(['minimist@1.2.5']),
     ],
     ['an unrecognised extra document', `---\nfoo: bar\n${workspaceDocument(['react@19.0.0'])}`],
+    // Recognised positively, not by elimination: an env-like document whose
+    // importers are empty or missing is neither kind, and must not be taken
+    // for the workspace (it would audit only pnpm and report CLEAN).
+    [
+      'an env-like document with empty importers and no workspace document',
+      `---\nlockfileVersion: '9.0'\n\nimporters: {}\n\npackages:\n\n  'pnpm@12.21.0':\n    resolution: {integrity: sha512-x}\n`,
+    ],
+    [
+      'an env-like document with no importers and no workspace document',
+      `---\nlockfileVersion: '9.0'\n\npackages:\n\n  'pnpm@12.21.0':\n    resolution: {integrity: sha512-x}\n`,
+    ],
+    [
+      'a workspace-like document without settings',
+      `${envDocument(PNPM_PACKAGES)}---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies: {}\n\npackages:\n\n  'react@19.0.0':\n    resolution: {integrity: sha512-x}\n`,
+    ],
+    [
+      'a snapshot with no packages entry',
+      `${envDocument(PNPM_PACKAGES)}${workspaceDocument(['react@19.0.0'])}\nsnapshots:\n\n  'react@19.0.0': {}\n\n  'minimist@1.2.5': {}\n`,
+    ],
     [
       'two env documents',
       envDocument(PNPM_PACKAGES) +
@@ -449,6 +556,19 @@ function makePnpmShim(stdout, exitCode = 0) {
   return dir;
 }
 
+/**
+ * --prod reads the workspace that contains the current directory, so its
+ * lockfile has to be that workspace's own: a throwaway workspace root holding
+ * pnpm-workspace.yaml and the given lockfile body.
+ */
+function prodWorkspace(lockBody) {
+  const cwd = mkdtempSync(join(tmpdir(), 'audit-ws-'));
+  writeFileSync(join(cwd, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
+  writeFileSync(join(cwd, 'pnpm-lock.yaml'), lockBody);
+  return { cwd, lockfile: join(cwd, 'pnpm-lock.yaml') };
+}
+const WORKSPACE_LOCK = `lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n\nimporters:\n\n  .: {}\n\npackages:\n\n  'react@19.2.8':\n    resolution: {integrity: sha512-x}\n`;
+
 const PROD_TREE = JSON.stringify([
   {
     name: 'root',
@@ -461,25 +581,35 @@ const PROD_TREE = JSON.stringify([
 
 await withService(
   'healthy',
-  { minimist: [{ id: 4, severity: 'critical', title: 'Prototype Pollution' }] },
+  {
+    nested: [
+      {
+        id: 4,
+        severity: 'critical',
+        title: 'Nested advisory',
+        vulnerable_versions: '>=2.0.0 <3.0.0',
+      },
+    ],
+  },
   async (url) => {
+    const ws = prodWorkspace(WORKSPACE_LOCK);
     const shim = makePnpmShim(PROD_TREE);
     const prod = await runGate({
       url,
-      lockfile: cleanLock,
+      ...ws,
       extraArgs: ['--prod'],
       env: { PATH: `${shim}:${process.env.PATH}` },
     });
     check(
-      '--prod walks the pnpm tree and flags a transitive prod finding',
-      prod.code === 1 && /VULNERABLE/.test(prod.out) && /minimist/.test(prod.out),
+      '--prod walks the pnpm tree and flags a TRANSITIVE prod finding (nested under minimist)',
+      prod.code === 1 && /VULNERABLE/.test(prod.out) && /nested/.test(prod.out),
       `exit=${prod.code} out=${prod.out.trim()}`,
     );
 
     const emptyShim = makePnpmShim('[]');
     const emptyProd = await runGate({
       url,
-      lockfile: cleanLock,
+      ...ws,
       extraArgs: ['--prod'],
       env: { PATH: `${emptyShim}:${process.env.PATH}` },
     });
@@ -495,23 +625,30 @@ await withService(
 // audits it, so --prod adds the lockfile's env document.
 await withService(
   'healthy',
-  { minimist: [{ id: 6, severity: 'critical', title: 'Prototype Pollution' }] },
+  {
+    minimist: [
+      {
+        id: 6,
+        severity: 'critical',
+        title: 'Prototype Pollution',
+        vulnerable_versions: '>=1.2.0 <1.2.6',
+      },
+    ],
+  },
   async (url) => {
     const shim = makePnpmShim(
       JSON.stringify([{ name: 'root', dependencies: { react: { version: '19.2.8' } } }]),
     );
-    const run = (lockfile) =>
+    const run = (body) =>
       runGate({
         url,
-        lockfile,
+        ...prodWorkspace(body),
         extraArgs: ['--prod'],
         env: { PATH: `${shim}:${process.env.PATH}` },
       });
 
     const flagged = await run(
-      writeLockfile(
-        envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
-      ),
+      envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
     );
     check(
       '--prod: a finding in the env (package-manager) document is reported',
@@ -519,9 +656,7 @@ await withService(
       `exit=${flagged.code} out=${flagged.out.trim()}`,
     );
 
-    const clean = await run(
-      writeLockfile(envDocument(PNPM_PACKAGES) + workspaceDocument(['react@19.0.0'])),
-    );
+    const clean = await run(envDocument(PNPM_PACKAGES) + workspaceDocument(['react@19.0.0']));
     check(
       '--prod: prod tree plus env document (3 packages: react + pnpm + @pnpm/exe)',
       clean.code === 0 && /CLEAN — 3 packages checked/.test(clean.out),
@@ -529,12 +664,30 @@ await withService(
     );
 
     const ambiguous = await run(
-      writeLockfile(workspaceDocument(['react@19.0.0']) + workspaceDocument(['react@19.0.0'])),
+      workspaceDocument(['react@19.0.0']) + workspaceDocument(['react@19.0.0']),
     );
     check(
       '--prod: an ambiguous lockfile still refuses, exit 1',
       ambiguous.code === 1 && /audit gate: lockfile/.test(ambiguous.out),
       `exit=${ambiguous.code} out=${ambiguous.out.trim()}`,
+    );
+
+    // --prod combines THIS workspace's `pnpm ls` tree with --lockfile's
+    // package-manager document; a lockfile from somewhere else is refused.
+    const ws = prodWorkspace(envDocument(PNPM_PACKAGES) + workspaceDocument(['react@19.0.0']));
+    const foreign = await runGate({
+      url,
+      cwd: ws.cwd,
+      lockfile: writeLockfile(envDocument(PNPM_PACKAGES) + workspaceDocument(['react@19.0.0'])),
+      extraArgs: ['--prod'],
+      env: { PATH: `${shim}:${process.env.PATH}` },
+    });
+    check(
+      "--prod with a --lockfile that is not the workspace's own -> refuses, exit 1",
+      foreign.code === 1 &&
+        !/CLEAN/.test(foreign.out) &&
+        /--lockfile must be its own/.test(foreign.out),
+      `exit=${foreign.code} out=${foreign.out.trim()}`,
     );
   },
 );

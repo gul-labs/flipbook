@@ -5,14 +5,17 @@
  * The check only ever runs for real straight after a publish, which nobody can
  * do to test it. So every branch is driven here against a local fake of the
  * registry's version endpoint: attested, unattested, attested-but-hollow,
- * late-appearing, down, hanging. The one that matters most is "the version doc
- * exists and has no attestation" — the exact shape a token-fallback publish
- * leaves behind — and it must be red.
+ * late-appearing, down, hanging, and the rerun after a partial release. The
+ * one that matters most is "the version doc exists and has no attestation" —
+ * what an unattested publish leaves behind — and it must be red, on the run
+ * that published it and on every later run.
  *
  * Usage: node scripts/check-published-provenance.test.mjs
  */
 import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,9 +80,32 @@ const REQUEST_BUDGET_MS = '10000';
 // PROVENANCE_TIMEOUT_MS fails here instead of hanging.
 const HANG_TIMEOUT_MS = '1000';
 const HANG_DEADLINE_MS = 15000;
+// Process start-up plus the fetch() cold start measured under load (max 385 ms
+// with the CPU 2x oversubscribed), with room to spare.
+const STARTUP_ALLOWANCE_MS = 3000;
 
-function runCheck({ url, published, args = [], env = {}, deadlineMs = 60000 }) {
+/** A throwaway repository root whose packages/* manifests are `packages`. */
+function makeWorkspace(packages) {
+  const root = mkdtempSync(join(tmpdir(), 'provenance-ws-'));
+  for (const [i, pkg] of packages.entries()) {
+    mkdirSync(join(root, 'packages', `p${i}`), { recursive: true });
+    writeFileSync(join(root, 'packages', `p${i}`, 'package.json'), JSON.stringify(pkg));
+  }
+  mkdirSync(join(root, 'packages'), { recursive: true });
+  return root;
+}
+
+function runCheck({
+  url,
+  published,
+  args = [],
+  env = {},
+  deadlineMs = 60000,
+  workspace = DEFAULT_WORKSPACE,
+  changesetsPublished = 'true',
+}) {
   return new Promise((resolve) => {
+    const started = Date.now();
     const child = spawn(process.execPath, [CHECK, ...args], {
       env: {
         ...process.env,
@@ -87,6 +113,8 @@ function runCheck({ url, published, args = [], env = {}, deadlineMs = 60000 }) {
         PROVENANCE_RETRIES: '3',
         PROVENANCE_BASE_DELAY_MS: '1',
         PROVENANCE_TIMEOUT_MS: REQUEST_BUDGET_MS,
+        PROVENANCE_WORKSPACE: workspace,
+        ...(changesetsPublished === null ? {} : { CHANGESETS_PUBLISHED: changesetsPublished }),
         ...(published === undefined
           ? { PUBLISHED_PACKAGES: '' }
           : {
@@ -110,6 +138,7 @@ function runCheck({ url, published, args = [], env = {}, deadlineMs = 60000 }) {
       resolve({
         code: killed ? 'killed' : code,
         out: killed ? `${out}\n[killed after ${deadlineMs} ms]` : out,
+        elapsedMs: Date.now() - started,
       });
     });
   });
@@ -139,6 +168,15 @@ const REACT = { name: '@gullabs/react-flipbook', version: '3.2.3' };
 const CORE_PATH = '/@gullabs%2Fflipbook-core/3.2.3';
 const REACT_PATH = '/@gullabs%2Freact-flipbook/3.2.3';
 const ok = (doc) => [{ status: 200, body: doc }];
+const notFound = [{ status: 404, body: { error: 'Not found' } }];
+
+// Most cases: the workspace holds core at the reported version, so the
+// workspace check and the reported check coincide and request counts stay 1:1.
+const DEFAULT_WORKSPACE = makeWorkspace([
+  { ...CORE },
+  { name: 'flipbook', version: '0.0.0', private: true },
+]);
+const BOTH_WORKSPACE = makeWorkspace([{ ...CORE }, { ...REACT }]);
 
 console.log('published-provenance check self-test');
 
@@ -247,14 +285,9 @@ for (const [label, plan] of [
   ['always 503', [{ status: 503, body: { error: 'Service Unavailable' } }]],
   ['always 429', [{ status: 429, body: { error: 'Too Many Requests' } }]],
   ['200 with a non-JSON body', [{ status: 200, body: '<html>maintenance</html>' }]],
-  ['hang', ['hang']],
 ]) {
   await withRegistry({ [CORE_PATH]: plan }, async (url, seen) => {
-    const timing =
-      label === 'hang'
-        ? { env: { PROVENANCE_TIMEOUT_MS: HANG_TIMEOUT_MS }, deadlineMs: HANG_DEADLINE_MS }
-        : {};
-    const result = await runCheck({ url, published: [CORE], ...timing });
+    const result = await runCheck({ url, published: [CORE] });
     check(
       `registry ${label} -> UNVERIFIED after retries, exit 1`,
       result.code === 1 &&
@@ -262,6 +295,32 @@ for (const [label, plan] of [
         !/check: VERIFIED/.test(result.out) &&
         seen.length === 3,
       `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
+    );
+  });
+}
+
+// The timeout path, asserted rather than logged: the fake must see exactly the
+// configured attempts, and the run must take about attempts x timeout. Two
+// settings, so a hard-coded timeout fails one of them: too short undercuts the
+// lower bound, too long overshoots the upper bound or the deadline.
+for (const timeoutMs of [Number(HANG_TIMEOUT_MS), Number(HANG_TIMEOUT_MS) * 2]) {
+  await withRegistry({ [CORE_PATH]: ['hang'] }, async (url, seen) => {
+    const result = await runCheck({
+      url,
+      published: [CORE],
+      env: { PROVENANCE_TIMEOUT_MS: String(timeoutMs) },
+      deadlineMs: HANG_DEADLINE_MS,
+    });
+    const floor = 3 * timeoutMs - 50;
+    const ceiling = 3 * timeoutMs + STARTUP_ALLOWANCE_MS;
+    check(
+      `registry hang at ${timeoutMs} ms -> UNVERIFIED, 3 requests, ${floor}..${ceiling} ms`,
+      result.code === 1 &&
+        /UNVERIFIED/.test(result.out) &&
+        seen.length === 3 &&
+        result.elapsedMs >= floor &&
+        result.elapsedMs <= ceiling,
+      `exit=${result.code} requests=${seen.length} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
   });
 }
@@ -279,7 +338,7 @@ await withRegistry(
   },
 );
 
-// Nothing to check is not a pass: the step only runs when changesets says it published.
+// Nothing to check is not a pass when changesets says it published.
 await withRegistry({}, async (url, seen) => {
   for (const [label, published] of [
     ['unset', undefined],
@@ -293,6 +352,23 @@ await withRegistry({}, async (url, seen) => {
     const result = await runCheck({ url, published });
     check(
       `publishedPackages ${label} -> BAD INPUT, exit 1`,
+      result.code === 1 && /BAD INPUT/.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  }
+  for (const [label, opts] of [
+    ['CHANGESETS_PUBLISHED unset', { changesetsPublished: null }],
+    ['CHANGESETS_PUBLISHED=yes', { changesetsPublished: 'yes' }],
+    ['no packages/ directory', { workspace: mkdtempSync(join(tmpdir(), 'provenance-empty-')) }],
+    [
+      'only private workspace packages',
+      { workspace: makeWorkspace([{ name: 'x', version: '1.0.0', private: true }]) },
+    ],
+    ['workspace manifest without a version', { workspace: makeWorkspace([{ name: CORE.name }]) }],
+  ]) {
+    const result = await runCheck({ url, published: [CORE], ...opts });
+    check(
+      `${label} -> BAD INPUT, exit 1`,
       result.code === 1 && /BAD INPUT/.test(result.out),
       `exit=${result.code} out=${result.out.trim()}`,
     );
@@ -340,6 +416,116 @@ await withRegistry({ [CORE_PATH]: ok(attested(CORE.name, CORE.version)) }, async
     `exit=${one.code} out=${one.out.trim()}`,
   );
 });
+
+// A replica can serve the version before its attestation metadata: a 200
+// without provenance is re-read inside the retry window before MISSING.
+await withRegistry(
+  {
+    [CORE_PATH]: [
+      { status: 200, body: versionDoc(CORE.name, CORE.version) },
+      { status: 200, body: attested(CORE.name, CORE.version) },
+    ],
+  },
+  async (url, seen) => {
+    const result = await runCheck({ url, published: [CORE] });
+    check(
+      '200 without provenance, then attested -> re-read and VERIFIED, exit 0',
+      result.code === 0 && /check: VERIFIED/.test(result.out) && seen.length === 2,
+      `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
+    );
+  },
+);
+await withRegistry({ [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)) }, async (url, seen) => {
+  const result = await runCheck({ url, published: [CORE] });
+  check(
+    'still unattested after every re-read -> MISSING after 3 requests, evidence only',
+    result.code === 1 &&
+      /MISSING/.test(result.out) &&
+      seen.length === 3 &&
+      /dist\.attestations\.provenance is absent/.test(result.out) &&
+      !/NPM_TOKEN|fallback|went out through/i.test(result.out),
+    `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
+  );
+});
+
+// THE RERUN HOLE. Run 1 publishes core without provenance and fails on react;
+// it reports core and is red. Run 2 finds core already on the registry and
+// publishes only react, so it reports only react. It must still be red,
+// because core@3.2.3 is still unattested.
+await withRegistry(
+  { [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)), [REACT_PATH]: notFound },
+  async (url) => {
+    const first = await runCheck({ url, published: [CORE], workspace: BOTH_WORKSPACE });
+    check(
+      'rerun, run 1: core published unattested, react not yet -> MISSING core, exit 1',
+      first.code === 1 &&
+        /MISSING/.test(first.out) &&
+        /@gullabs\/flipbook-core@3\.2\.3: dist\.attestations\.provenance is absent/.test(
+          first.out,
+        ) &&
+        /@gullabs\/react-flipbook@3\.2\.3: HTTP 404: not published yet/.test(first.out),
+      `exit=${first.code} out=${first.out.trim()}`,
+    );
+  },
+);
+await withRegistry(
+  {
+    [CORE_PATH]: ok(versionDoc(CORE.name, CORE.version)),
+    [REACT_PATH]: ok(attested(REACT.name, REACT.version)),
+  },
+  async (url, seen) => {
+    const second = await runCheck({ url, published: [REACT], workspace: BOTH_WORKSPACE });
+    check(
+      'rerun, run 2: reports only react (attested) -> still MISSING core, exit 1',
+      second.code === 1 &&
+        /MISSING/.test(second.out) &&
+        /@gullabs\/flipbook-core@3\.2\.3: dist\.attestations\.provenance is absent/.test(
+          second.out,
+        ) &&
+        seen.includes(CORE_PATH),
+      `exit=${second.code} requests=${seen.join(', ')} out=${second.out.trim()}`,
+    );
+  },
+);
+
+// A workspace version that is not on the registry and was not reported is
+// simply not published yet (e.g. a run that opened the Version Packages PR).
+await withRegistry({ [CORE_PATH]: notFound, [REACT_PATH]: notFound }, async (url, seen) => {
+  const result = await runCheck({
+    url,
+    published: [],
+    changesetsPublished: 'false',
+    workspace: BOTH_WORKSPACE,
+  });
+  check(
+    'nothing published, workspace versions 404 -> VERIFIED (not published yet), one request each',
+    result.code === 0 &&
+      /check: VERIFIED — 2 version\(s\) checked: 0 attested, 2 not published yet/.test(
+        result.out,
+      ) &&
+      seen.length === 2,
+    `exit=${result.code} requests=${seen.length} out=${result.out.trim()}`,
+  );
+});
+await withRegistry(
+  {
+    [CORE_PATH]: ok(attested(CORE.name, CORE.version)),
+    [REACT_PATH]: ok(versionDoc(REACT.name, REACT.version)),
+  },
+  async (url) => {
+    const result = await runCheck({
+      url,
+      published: [],
+      changesetsPublished: 'false',
+      workspace: BOTH_WORKSPACE,
+    });
+    check(
+      'nothing published this run, an existing workspace version unattested -> MISSING, exit 1',
+      result.code === 1 && /MISSING/.test(result.out) && /react-flipbook@3\.2\.3/.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  },
+);
 
 // argv takes the same JSON as the environment.
 await withRegistry({ [CORE_PATH]: ok(attested(CORE.name, CORE.version)) }, async (url) => {

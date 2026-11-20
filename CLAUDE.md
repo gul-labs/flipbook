@@ -19,7 +19,7 @@ Upstream import points are tagged: `upstream-page-flip-2.0.7`, `upstream-react-p
 ## Commands
 
 ```bash
-pnpm install            # pnpm 12.21.0, Node >=22.18.0 (.nvmrc pins 26)
+pnpm install            # pnpm 12.21.0; develop on Node 26 (.nvmrc). Published packages: engines >=22.18.0
 pnpm test               # vitest run, both projects
 pnpm build              # tsup per package (see caveat below)
 pnpm typecheck          # tsc --noEmit per package
@@ -209,10 +209,14 @@ tears the book down mid-animation.
   pnpm 12 publishes natively and ignores `NPM_CONFIG_PROVENANCE`, so an
   attestation now comes only from the OIDC trusted-publisher exchange, matching
   `gul-labs/any-llm`. Each package needs a trusted publisher on npmjs.com
-  (`gul-labs/flipbook`, `release.yml`) — an owner action. Until then the Release
-  job publishes through the `NPM_TOKEN` secret without provenance, and its
-  `scripts/check-published-provenance.mjs` step fails the job. See
-  `RELEASING.md`.
+  (`gul-labs/flipbook`, `release.yml`) — an owner action. The workflow has no
+  npm token (a token's only effect would be an unattested publish when the
+  exchange fails), so until then the Release job cannot publish at all. Its
+  `scripts/check-published-provenance.mjs` step also fails the job while any
+  published workspace version lacks provenance, on every run, until a new
+  version supersedes it. The job runs only when `workflow_run.head_sha` equals
+  `github.sha`, so provenance names the commit that was built. The publish
+  path was rehearsed against a fake registry; see `RELEASING.md`.
 - **pnpm is 12, and `minimumReleaseAge: 1440` is explicit.** Nothing published
   less than 24 hours ago may enter the lockfile, direct or transitive. Setting
   the value explicitly makes it strict (resolution fails rather than falling

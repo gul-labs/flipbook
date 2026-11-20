@@ -19,9 +19,10 @@ updates:
     # minutes under 24 h old; 2 is the smallest whole-day value that cannot.
     # Per the same reference, cooldown applies to VERSION updates only, not
     # security updates: a security PR for a fix under a day old will still
-    # fail the install until the fix ages, or until that version is listed in
-    # `minimumReleaseAgeExclude` (which `pnpm audit --fix` does). The docs
-    # state no interaction between `cooldown` and `groups`.
+    # fail the install until the fix ages, or until the patched version is
+    # listed in `minimumReleaseAgeExclude`, which `pnpm audit --fix` writes
+    # (pnpm docs, cli/audit "--fix"; observed on pnpm 12.21.0). The docs state
+    # no interaction between `cooldown` and `groups`.
     cooldown:
       default-days: 2
     groups:

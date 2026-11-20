@@ -1,49 +1,64 @@
 #!/usr/bin/env node
 /**
- * Fail the Release job when a package it just published carries no npm
- * provenance attestation.
+ * Fail the Release job while any published version of a workspace package
+ * carries no npm provenance attestation.
  *
  * WHY THIS EXISTS
  * ---------------
  * Under pnpm 9/10, `changeset publish` reached `npm publish`, and npm honoured
- * `NPM_CONFIG_PROVENANCE=true`. pnpm 11 replaced that with a native publish
- * that reads `provenance` only from the `--provenance` CLI flag, and
- * `changeset publish` calls `pnpm publish` with a fixed argument list, so the
- * flag cannot be passed. Provenance now comes only from npm trusted publishing
- * (the OIDC exchange pnpm attempts on every publish), which has to be
- * configured per package on npmjs.com. When it is not, the publish still
- * SUCCEEDS — through the `NPM_TOKEN` fallback — and simply ships without an
- * attestation. Nothing in the job turns red. `gul-labs/any-llm` 0.14.0 went out
- * exactly that way.
+ * `NPM_CONFIG_PROVENANCE=true`. pnpm 11+ publishes natively, and provenance now
+ * comes only from npm trusted publishing (the OIDC exchange pnpm attempts on
+ * every publish). A publish can still go out WITHOUT an attestation and exit 0:
+ * measured with pnpm 12.21.0 against a local fake registry, when the exchange
+ * works but pnpm's visibility lookup (`GET /-/package/<name>/visibility`)
+ * fails, pnpm prints "[WARN] Skipped setting provenance: …" and uploads the
+ * tarball unattested. A static token, if one were configured, is another such
+ * path. Nothing else in the job turns red.
  *
- * So after `changesets/action` reports `published == 'true'`, this reads the
- * registry's own record of each published version and requires
- * `dist.attestations.provenance` to be there. It cannot un-publish anything
- * (npm versions are immutable); its job is to make the gap loud on the run
- * that created it rather than on the day someone checks.
+ * WHAT IT CHECKS
+ * --------------
+ *   1. Every version changesets/action reports as published in THIS run
+ *      (`PUBLISHED_PACKAGES`). It must exist on the registry and be attested;
+ *      a 404 is retried, because a new version takes a while to be visible.
+ *   2. Every public workspace package (`packages/<dir>/package.json`) at its
+ *      manifest version. If the registry has that version it must be attested;
+ *      a 404 for a version this run did not report means "not published yet".
+ *
+ * (2) closes the rerun hole: if a first run publishes core unattested and fails
+ * on react, a rerun reports only react, and a check of (1) alone would go
+ * green with core still unattested. With (2) an unattested version keeps the
+ * job red on every run until a new version supersedes it.
+ *
+ * A version document without provenance is re-read within the same bounded
+ * retry window before it is reported MISSING, in case a registry replica
+ * serves the version before its attestation metadata. The report states the
+ * registry evidence only; it does not guess how the version was published.
  *
  * FOUR OUTCOMES, NEVER CONFLATED
  * ------------------------------
- *   VERIFIED     every version doc read, every one attested         -> exit 0
- *   MISSING      a version doc was read and has no provenance       -> exit 1
- *   UNVERIFIED   a version doc could not be read after retries      -> exit 1
- *   BAD INPUT    the publishedPackages list is absent or malformed  -> exit 1
+ *   VERIFIED     every version checked is attested or not published -> exit 0
+ *   MISSING      a version exists and has no provenance                -> exit 1
+ *   UNVERIFIED   a version document could not be read after retries   -> exit 1
+ *   BAD INPUT    the inputs are absent or malformed                    -> exit 1
  *
- * UNVERIFIED fails closed, unlike the audit gate's UNDETERMINED: this runs once,
- * after a publish that has already happened, so there is no merge to unblock
- * and no later run that will look again. A 404 is retried, because a version
- * can take a short while to become visible after `PUT` returns.
+ * UNVERIFIED fails closed, unlike the audit gate's UNDETERMINED: this runs after
+ * a publish that has already happened, so there is no merge to unblock.
  *
- * Usage:
- *   PUBLISHED_PACKAGES='[{"name":"@scope/pkg","version":"1.2.3"}]' \
- *     node scripts/check-published-provenance.mjs
- *   node scripts/check-published-provenance.mjs '<same JSON>'
- *
- * The JSON is the `published-packages` output of changesets/action@v2 (v1
- * called it `publishedPackages`; "publishedPackages" below means that list). Pass it
- * through the environment in a workflow, never by interpolating `${{ }}` into
- * the command line.
+ * Inputs (environment; argv[2] may carry PUBLISHED_PACKAGES instead):
+ *   CHANGESETS_PUBLISHED   'true' or 'false': changesets/action's `published`.
+ *   PUBLISHED_PACKAGES     its `published-packages` JSON array of {name,version};
+ *                          must be non-empty when CHANGESETS_PUBLISHED is 'true'.
+ *   PROVENANCE_WORKSPACE   repository root to read packages/* from (default: cwd).
+ * Pass them through the environment in a workflow, never by interpolating
+ * `${{ }}` into the command line.
  */
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+function badInput(message) {
+  console.error(`provenance check: BAD INPUT — ${message}`);
+  process.exit(1);
+}
 
 const REGISTRY = (process.env.PROVENANCE_REGISTRY_URL ?? 'https://registry.npmjs.org').replace(
   /\/+$/,
@@ -52,6 +67,7 @@ const REGISTRY = (process.env.PROVENANCE_REGISTRY_URL ?? 'https://registry.npmjs
 if (!URL.canParse(REGISTRY) || !/^https?:$/.test(new URL(REGISTRY).protocol)) {
   badInput(`PROVENANCE_REGISTRY_URL=${JSON.stringify(REGISTRY)} is not an http(s) URL`);
 }
+
 /**
  * A tuning variable, or its default. Validated rather than passed through
  * `Number()`: `PROVENANCE_RETRIES=0` or `=abc` used to run the fetch loop zero
@@ -78,44 +94,72 @@ const TIMEOUT_MS = tuning('PROVENANCE_TIMEOUT_MS', 20000, { integer: false });
 // spliced into a URL.
 const NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
 const VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/;
+const validEntry = (entry) =>
+  entry !== null &&
+  typeof entry === 'object' &&
+  typeof entry.name === 'string' &&
+  typeof entry.version === 'string' &&
+  NAME.test(entry.name) &&
+  VERSION.test(entry.version);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function badInput(message) {
-  console.error(`provenance check: BAD INPUT — ${message}`);
-  process.exit(1);
-}
-
 function readPublished() {
-  const raw = process.argv[2] ?? process.env.PUBLISHED_PACKAGES;
-  if (raw === undefined || raw.trim() === '') {
+  const flag = process.env.CHANGESETS_PUBLISHED;
+  if (flag !== 'true' && flag !== 'false') {
     badInput(
-      'no publishedPackages given (argv[2] or PUBLISHED_PACKAGES). The publish step reported ' +
-        'that it published, so an empty list means the check cannot run, not that it passed.',
+      `CHANGESETS_PUBLISHED=${JSON.stringify(flag)} must be 'true' or 'false' ` +
+        "(changesets/action's `published` output)",
     );
   }
-  let list;
-  try {
-    list = JSON.parse(raw);
-  } catch (error) {
-    badInput(`publishedPackages is not JSON: ${error?.message ?? error}`);
-  }
-  if (!Array.isArray(list) || list.length === 0) {
-    badInput(`publishedPackages must be a non-empty array (got ${JSON.stringify(list)})`);
-  }
-  for (const entry of list) {
-    if (
-      entry === null ||
-      typeof entry !== 'object' ||
-      typeof entry.name !== 'string' ||
-      typeof entry.version !== 'string' ||
-      !NAME.test(entry.name) ||
-      !VERSION.test(entry.version)
-    ) {
-      badInput(`not a {name, version} package entry: ${JSON.stringify(entry)}`);
+  const raw = process.argv[2] ?? process.env.PUBLISHED_PACKAGES ?? '';
+  let list = [];
+  if (raw.trim() !== '') {
+    try {
+      list = JSON.parse(raw);
+    } catch (error) {
+      badInput(`publishedPackages is not JSON: ${error?.message ?? error}`);
     }
   }
+  if (!Array.isArray(list)) {
+    badInput(`publishedPackages must be an array (got ${JSON.stringify(list)})`);
+  }
+  if (flag === 'true' && list.length === 0) {
+    badInput(
+      'CHANGESETS_PUBLISHED is true but no published packages were given. The publish step ' +
+        'reported that it published, so an empty list means the check cannot run, not that it passed.',
+    );
+  }
+  for (const entry of list) {
+    if (!validEntry(entry))
+      badInput(`not a {name, version} package entry: ${JSON.stringify(entry)}`);
+  }
   return list;
+}
+
+function readWorkspacePackages() {
+  const root = resolve(process.env.PROVENANCE_WORKSPACE ?? process.cwd());
+  const dir = join(root, 'packages');
+  if (!existsSync(dir)) badInput(`no packages/ directory under ${root}`);
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = join(dir, entry.name, 'package.json');
+    if (!existsSync(manifestPath)) continue;
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch (error) {
+      badInput(`${manifestPath} is not JSON: ${error?.message ?? error}`);
+    }
+    if (manifest.private === true) continue;
+    const pkg = { name: manifest.name, version: manifest.version };
+    if (!validEntry(pkg))
+      badInput(`${manifestPath} has no valid name/version (${JSON.stringify(pkg)})`);
+    found.push(pkg);
+  }
+  if (found.length === 0) badInput(`no public workspace packages found under ${dir}`);
+  return found;
 }
 
 /** `@scope/name` -> `@scope%2Fname`, the form the registry documents. */
@@ -123,8 +167,8 @@ const encodeName = (name) =>
   name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name);
 
 /**
- * The registry's version document, or a reason it could not be read.
- * Returns { doc } or { error, retryable }.
+ * One read of the registry's version document.
+ * Returns { doc } | { notFound: true } | { error, retryable }.
  */
 async function fetchVersionDoc(name, version) {
   const url = `${REGISTRY}/${encodeName(name)}/${encodeURIComponent(version)}`;
@@ -137,15 +181,11 @@ async function fetchVersionDoc(name, version) {
   } catch (error) {
     return { error: `request failed: ${error?.message ?? error}`, retryable: true };
   }
-  if (response.status === 404) {
-    return { error: 'HTTP 404 (not visible yet, or never published)', retryable: true };
-  }
+  if (response.status === 404) return { notFound: true };
   if (response.status === 429 || response.status >= 500) {
     return { error: `HTTP ${response.status}`, retryable: true };
   }
-  if (!response.ok) {
-    return { error: `HTTP ${response.status}`, retryable: false };
-  }
+  if (!response.ok) return { error: `HTTP ${response.status}`, retryable: false };
   try {
     return { doc: await response.json() };
   } catch (error) {
@@ -157,7 +197,7 @@ async function fetchVersionDoc(name, version) {
 function provenanceProblem(doc, name, version) {
   if (doc === null || typeof doc !== 'object') return 'version document is not an object';
   if (doc.name !== name || doc.version !== version) {
-    return `registry returned ${JSON.stringify(doc.name)}@${JSON.stringify(doc.version)}, not the version that was published`;
+    return `registry returned ${JSON.stringify(doc.name)}@${JSON.stringify(doc.version)}, not the requested version`;
   }
   const provenance = doc.dist?.attestations?.provenance;
   if (provenance === undefined || provenance === null) {
@@ -175,58 +215,79 @@ function provenanceProblem(doc, name, version) {
   return null;
 }
 
-const published = readPublished();
-const missing = [];
-const unverified = [];
-
-for (const { name, version } of published) {
-  let result;
+/**
+ * Check one version. `mustExist` is true for versions this run reported as
+ * published: for those a 404 is registry lag, not an answer.
+ * Returns { state: 'attested' | 'unpublished' | 'missing' | 'unverified', detail }.
+ */
+async function check({ name, version, mustExist }) {
+  let last;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
-    result = await fetchVersionDoc(name, version);
-    if (result.doc || !result.retryable) break;
+    const result = await fetchVersionDoc(name, version);
+    if (result.notFound && !mustExist) {
+      return { state: 'unpublished', detail: 'HTTP 404: not published yet' };
+    }
+    if (result.doc) {
+      const problem = provenanceProblem(result.doc, name, version);
+      if (!problem) {
+        return { state: 'attested', detail: result.doc.dist.attestations.provenance.predicateType };
+      }
+      last = { state: 'missing', detail: problem };
+    } else if (result.notFound) {
+      last = { state: 'unverified', detail: 'HTTP 404 (reported as published, not visible)' };
+    } else {
+      last = { state: 'unverified', detail: result.error };
+      if (!result.retryable) return last;
+    }
     if (attempt < RETRIES) {
       const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
       console.error(
-        `provenance check: ${name}@${version}: ${result.error}; retrying in ${delay}ms (${attempt}/${RETRIES})`,
+        `provenance check: ${name}@${version}: ${last.detail}; re-reading in ${delay}ms (${attempt}/${RETRIES})`,
       );
       await sleep(delay);
     }
   }
-
-  if (!result.doc) {
-    unverified.push(`${name}@${version}: ${result.error}`);
-    continue;
-  }
-  const problem = provenanceProblem(result.doc, name, version);
-  if (problem) {
-    missing.push(`${name}@${version}: ${problem}`);
-  } else {
-    console.log(
-      `provenance check: ${name}@${version} attested (${result.doc.dist.attestations.provenance.predicateType})`,
-    );
-  }
+  return last;
 }
 
-if (missing.length > 0) {
+const published = readPublished();
+const workspace = readWorkspacePackages();
+
+// One target per name@version; reported versions are the strict kind.
+const targets = new Map();
+for (const p of workspace) targets.set(`${p.name}@${p.version}`, { ...p, mustExist: false });
+for (const p of published) targets.set(`${p.name}@${p.version}`, { ...p, mustExist: true });
+
+const outcome = { attested: [], unpublished: [], missing: [], unverified: [] };
+for (const target of targets.values()) {
+  const { state, detail } = await check(target);
+  const line = `${target.name}@${target.version}: ${detail}`;
+  outcome[state].push(line);
+  if (state === 'attested')
+    console.log(`provenance check: ${target.name}@${target.version} attested (${detail})`);
+  if (state === 'unpublished') console.log(`provenance check: ${line}`);
+}
+
+if (outcome.missing.length > 0) {
   console.error(
-    `provenance check: MISSING — ${missing.length} published version(s) carry no provenance attestation:`,
+    `provenance check: MISSING — ${outcome.missing.length} version(s) on the registry carry no provenance attestation:`,
   );
-  for (const m of missing) console.error(`  ${m}`);
+  for (const m of outcome.missing) console.error(`  ${m}`);
   console.error(
-    'From the Release job this means the publish went out through the NPM_TOKEN fallback.\n' +
-      'Configure npm trusted publishing for each package (see RELEASING.md); the published\n' +
-      'version itself cannot be changed.',
+    'npm versions are immutable; this stays red until a new, attested version supersedes it.\n' +
+      'See RELEASING.md for the trusted-publisher setup.',
   );
 }
-if (unverified.length > 0) {
+if (outcome.unverified.length > 0) {
   console.error(
-    `provenance check: UNVERIFIED — could not read ${unverified.length} version document(s) after ${RETRIES} attempts:`,
+    `provenance check: UNVERIFIED — could not establish ${outcome.unverified.length} version(s) after ${RETRIES} attempts:`,
   );
-  for (const u of unverified) console.error(`  ${u}`);
+  for (const u of outcome.unverified) console.error(`  ${u}`);
   console.error('This is NOT a pass: provenance was not checked for these versions.');
 }
-if (missing.length > 0 || unverified.length > 0) process.exit(1);
+if (outcome.missing.length > 0 || outcome.unverified.length > 0) process.exit(1);
 
 console.log(
-  `provenance check: VERIFIED — ${published.length} published version(s), every one attested.`,
+  `provenance check: VERIFIED — ${targets.size} version(s) checked: ` +
+    `${outcome.attested.length} attested, ${outcome.unpublished.length} not published yet.`,
 );
