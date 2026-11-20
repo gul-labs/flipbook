@@ -58,8 +58,10 @@ pnpm test:e2e
 ```
 
 Golden screenshot baselines are per-platform and both sets are committed;
-CI compares against the `-linux` ones. Regenerate those in CI's own container
-with `pnpm test:e2e:golden:update:linux` (see `e2e/README.md`).
+CI compares against the `-linux` ones. Regenerate those in the official
+Playwright Docker image for the pinned version with
+`pnpm test:e2e:golden:update:linux` (see `e2e/README.md`) — a reproducible
+stand-in for CI's `ubuntu-latest` runner, not the same environment.
 
 ## Architecture
 
@@ -215,11 +217,13 @@ tears the book down mid-animation.
   less than 24 hours ago may enter the lockfile, direct or transitive. Setting
   the value explicitly makes it strict (resolution fails rather than falling
   back to a too-new version), and frozen installs re-check every lockfile entry
-  against it — so a Dependabot PR for a release under a day old fails CI's
-  install until the release ages. Re-run it then; do not lower the setting.
+  against it. `.github/dependabot.yml` sets `cooldown.default-days: 2` so
+  version updates never propose such a release; security updates ignore the
+  cooldown, so one for a fix under a day old fails CI's install until it ages
+  (or the version goes in `minimumReleaseAgeExclude`). Do not lower the setting.
   pnpm 12 also writes a two-document `pnpm-lock.yaml` (the first document locks
-  pnpm itself); `scripts/audit.mjs` selects the workspace document by content
-  and fails closed if that is ambiguous. pnpm 12 rejects unknown keys in
+  pnpm itself); `scripts/audit.mjs` classifies the documents by content, audits
+  both (as `pnpm audit` does), and fails closed if the shape is ambiguous. pnpm 12 rejects unknown keys in
   `pnpm-workspace.yaml`, the only place pnpm settings live (`allowBuilds`, not
   `onlyBuiltDependencies`; no `pnpm` field in `package.json`; no `.npmrc`).
 

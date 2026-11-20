@@ -108,7 +108,8 @@ function undetermined(reason) {
 }
 
 /**
- * The one YAML document in `text` that is the workspace lockfile.
+ * The lockfile's documents, classified: exactly one `workspace` document and
+ * at most one `env` document (null when absent, e.g. a pnpm 10 lockfile).
  *
  * pnpm 11+ with a pinned `packageManager` writes TWO documents: first an "env
  * lockfile" whose only importer entries are `packageManagerDependencies` /
@@ -118,11 +119,19 @@ function undetermined(reason) {
  * do. `yaml.parse` refuses a multi-document file outright ("Source contains
  * multiple documents"), which is how this gate broke under pnpm 12.
  *
+ * BOTH documents are audited. `pnpm audit` on 12.21.0 sends the env
+ * document's packages (`pnpm` and every `@pnpm/exe.*` binary) to the bulk
+ * advisory endpoint, with and without `--prod` (measured against a local
+ * capture registry), so a gate that skipped them would check less than the
+ * command it replaces. The package manager runs in CI with the publish
+ * token, so it is in scope.
+ *
  * Fails closed: a YAML error in any document, a document that is neither kind,
- * no workspace document, or more than one, all refuse to choose. Auditing the
- * wrong document would report CLEAN for packages that were never checked.
+ * no workspace document, more than one workspace document, or more than one
+ * env document, all refuse to choose. Auditing the wrong document would report
+ * CLEAN for packages that were never checked.
  */
-function selectLockfileDocument(text, path) {
+function classifyLockfileDocuments(text, path) {
   const ENV_IMPORTER_KEYS = new Set(['packageManagerDependencies', 'configDependencies']);
   const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
   const isEnvDocument = (doc) =>
@@ -136,6 +145,7 @@ function selectLockfileDocument(text, path) {
     );
 
   const workspaceDocuments = [];
+  const envDocuments = [];
   for (const [index, document] of yaml.parseAllDocuments(text).entries()) {
     if (document.errors.length > 0) {
       fail(`lockfile ${path} document ${index + 1}: ${document.errors[0].message}`);
@@ -147,7 +157,13 @@ function selectLockfileDocument(text, path) {
         `lockfile ${path} document ${index + 1} is not a pnpm lockfile document; refusing to guess`,
       );
     }
-    if (!isEnvDocument(doc)) workspaceDocuments.push(doc);
+    (isEnvDocument(doc) ? envDocuments : workspaceDocuments).push(doc);
+  }
+  if (envDocuments.length > 1) {
+    fail(
+      `lockfile ${path} has ${envDocuments.length} package-manager (env) documents; ` +
+        'refusing to pick one',
+    );
   }
   if (workspaceDocuments.length === 0) {
     fail(`lockfile ${path} has no workspace lockfile document; refusing to report clean`);
@@ -158,38 +174,44 @@ function selectLockfileDocument(text, path) {
         'refusing to pick one',
     );
   }
-  return workspaceDocuments[0];
+  return { workspace: workspaceDocuments[0], env: envDocuments[0] ?? null };
 }
 
-/**
- * Every resolved package in the workspace, as name -> Set(versions).
- * pnpm lockfile v9 keys look like `name@version` or
- * `@scope/name@version(peer@1.2.3)`; the parenthetical is a peer-resolution
- * suffix and is not part of the version.
- */
-function readInstalledPackages(path) {
+function readLockfile(path) {
   let text;
   try {
     text = readFileSync(path, 'utf8');
   } catch (error) {
     fail(`could not read lockfile ${path}: ${error?.message ?? error}`);
   }
-  const lock = selectLockfileDocument(text, path);
-  const keys = Object.keys(lock?.packages ?? {});
-  if (keys.length === 0) fail(`lockfile ${path} lists no packages; refusing to report clean`);
+  return classifyLockfileDocuments(text, path);
+}
 
-  const packages = new Map();
-  for (const rawKey of keys) {
+/**
+ * A lockfile document's `packages`, merged into `into` as name -> Set(versions).
+ * pnpm lockfile v9 keys look like `name@version` or
+ * `@scope/name@version(peer@1.2.3)`; the parenthetical is a peer-resolution
+ * suffix and is not part of the version.
+ */
+function addLockfilePackages(doc, into) {
+  for (const rawKey of Object.keys(doc?.packages ?? {})) {
     const key = rawKey.split('(')[0];
     const at = key.lastIndexOf('@');
     if (at <= 0) continue;
     const name = key.slice(0, at);
     const version = key.slice(at + 1);
     if (!name || !version) continue;
-    if (!packages.has(name)) packages.set(name, new Set());
-    packages.get(name).add(version);
+    if (!into.has(name)) into.set(name, new Set());
+    into.get(name).add(version);
   }
-  return packages;
+  return into;
+}
+
+/** Every resolved package in both lockfile documents. */
+function readInstalledPackages(lockfile, path) {
+  const packages = addLockfilePackages(lockfile.workspace, new Map());
+  if (packages.size === 0) fail(`lockfile ${path} lists no packages; refusing to report clean`);
+  return addLockfilePackages(lockfile.env, packages);
 }
 
 /**
@@ -282,9 +304,12 @@ async function readProductionPackages() {
   return packages;
 }
 
+// The package manager is audited in both modes, as `pnpm audit` does: `pnpm
+// ls --prod` never lists it, so its lockfile document is added explicitly.
+const lockfile = readLockfile(lockfilePath);
 const installed = args.includes('--prod')
-  ? await readProductionPackages()
-  : readInstalledPackages(lockfilePath);
+  ? addLockfilePackages(lockfile.env, await readProductionPackages())
+  : readInstalledPackages(lockfile, lockfilePath);
 const payload = Object.fromEntries([...installed].map(([name, versions]) => [name, [...versions]]));
 
 let advisories = null;

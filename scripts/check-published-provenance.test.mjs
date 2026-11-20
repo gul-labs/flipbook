@@ -66,7 +66,19 @@ function startRegistry(routes) {
   });
 }
 
-function runCheck({ url, published, args = [], env = {} }) {
+// Per-request budget for every case that is not about the timeout. A freshly
+// spawned check pays fetch()'s lazy initialisation inside it; see
+// REQUEST_BUDGET_MS in audit.test.mjs for the measurements behind this.
+const REQUEST_BUDGET_MS = '10000';
+// The hang case IS about the timeout. 1000 ms clears the worst measured cold
+// start, so all three attempts really reach the fake before they are aborted
+// (the case asserts three requests; at 300 ms an attempt could abort before it
+// was sent). Bounded from outside so a check that ignores
+// PROVENANCE_TIMEOUT_MS fails here instead of hanging.
+const HANG_TIMEOUT_MS = '1000';
+const HANG_DEADLINE_MS = 15000;
+
+function runCheck({ url, published, args = [], env = {}, deadlineMs = 60000 }) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CHECK, ...args], {
       env: {
@@ -74,7 +86,7 @@ function runCheck({ url, published, args = [], env = {} }) {
         PROVENANCE_REGISTRY_URL: url,
         PROVENANCE_RETRIES: '3',
         PROVENANCE_BASE_DELAY_MS: '1',
-        PROVENANCE_TIMEOUT_MS: '300',
+        PROVENANCE_TIMEOUT_MS: REQUEST_BUDGET_MS,
         ...(published === undefined
           ? { PUBLISHED_PACKAGES: '' }
           : {
@@ -86,9 +98,20 @@ function runCheck({ url, published, args = [], env = {} }) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
+    let killed = false;
+    const watchdog = setTimeout(() => {
+      killed = true;
+      child.kill('SIGKILL');
+    }, deadlineMs);
     child.stdout.on('data', (c) => (out += c));
     child.stderr.on('data', (c) => (out += c));
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => {
+      clearTimeout(watchdog);
+      resolve({
+        code: killed ? 'killed' : code,
+        out: killed ? `${out}\n[killed after ${deadlineMs} ms]` : out,
+      });
+    });
   });
 }
 
@@ -227,7 +250,11 @@ for (const [label, plan] of [
   ['hang', ['hang']],
 ]) {
   await withRegistry({ [CORE_PATH]: plan }, async (url, seen) => {
-    const result = await runCheck({ url, published: [CORE] });
+    const timing =
+      label === 'hang'
+        ? { env: { PROVENANCE_TIMEOUT_MS: HANG_TIMEOUT_MS }, deadlineMs: HANG_DEADLINE_MS }
+        : {};
+    const result = await runCheck({ url, published: [CORE], ...timing });
     check(
       `registry ${label} -> UNVERIFIED after retries, exit 1`,
       result.code === 1 &&
@@ -271,6 +298,47 @@ await withRegistry({}, async (url, seen) => {
     );
   }
   check('BAD INPUT never reaches the registry', seen.length === 0, `requests: ${seen.join(', ')}`);
+});
+
+// Tuning variables are validated: zero or unparseable values used to skip the
+// fetch loop entirely and die on a TypeError — non-zero by accident.
+await withRegistry({ [CORE_PATH]: ok(attested(CORE.name, CORE.version)) }, async (url, seen) => {
+  for (const [name, value] of [
+    ['PROVENANCE_RETRIES', '0'],
+    ['PROVENANCE_RETRIES', 'abc'],
+    ['PROVENANCE_RETRIES', '-1'],
+    ['PROVENANCE_RETRIES', '1.5'],
+    ['PROVENANCE_RETRIES', ''],
+    ['PROVENANCE_BASE_DELAY_MS', 'abc'],
+    ['PROVENANCE_BASE_DELAY_MS', '0'],
+    ['PROVENANCE_TIMEOUT_MS', '0'],
+    ['PROVENANCE_TIMEOUT_MS', 'Infinity'],
+    ['PROVENANCE_TIMEOUT_MS', '1e3'],
+    ['PROVENANCE_REGISTRY_URL', 'not a url'],
+    ['PROVENANCE_REGISTRY_URL', 'file:///etc'],
+  ]) {
+    const result = await runCheck({ url, published: [CORE], env: { [name]: value } });
+    check(
+      `${name}=${JSON.stringify(value)} -> BAD INPUT naming it, exit 1`,
+      result.code === 1 &&
+        /BAD INPUT/.test(result.out) &&
+        result.out.includes(name) &&
+        !/TypeError/.test(result.out),
+      `exit=${result.code} out=${result.out.trim()}`,
+    );
+  }
+  check(
+    'invalid tuning never reaches the registry',
+    seen.length === 0,
+    `requests: ${seen.join(', ')}`,
+  );
+
+  const one = await runCheck({ url, published: [CORE], env: { PROVENANCE_RETRIES: '1' } });
+  check(
+    'PROVENANCE_RETRIES=1 is valid -> VERIFIED, exit 0',
+    one.code === 0 && /check: VERIFIED/.test(one.out),
+    `exit=${one.code} out=${one.out.trim()}`,
+  );
 });
 
 // argv takes the same JSON as the environment.

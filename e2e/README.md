@@ -107,8 +107,12 @@ exist", it does not silently pass. Both sets are committed:
 - `*-chromium-darwin.png` / `*-webkit-darwin.png` — local development on macOS
 - `*-chromium-linux.png` / `*-webkit-linux.png` — what CI compares against
 
-Regenerate the Linux set inside the same container image CI uses (requires
-Docker running):
+Regenerate the Linux set inside the official Playwright image for the pinned
+version (requires Docker running). That image is a reproducible stand-in for
+the CI runner, not what CI uses: CI runs on `ubuntu-latest` after
+`playwright install --with-deps`, so fonts and system libraries can differ and
+a baseline generated in the image can still fail on the runner. Check the first
+CI run after regenerating.
 
 ```bash
 pnpm test:e2e:golden:update:linux

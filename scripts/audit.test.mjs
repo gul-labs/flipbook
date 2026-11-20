@@ -43,7 +43,7 @@ function makeLockfile(keys) {
 
 /**
  * Advisory service fake.
- *   healthy   flags the canary, plus whatever `findings` says
+ *   healthy   flags the canary, plus whichever `findings` the request asked about
  *   degraded  200 OK but an empty dataset (the dangerous shape)
  *   error     503
  *   hang      never responds
@@ -61,8 +61,23 @@ function startService(mode, findings = {}) {
       return;
     }
     if (mode === 'healthy') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ lodash: [CANARY_ADVISORY], ...findings }));
+      // Like the real bulk endpoint, answer only for packages that were asked
+      // about, so a test can tell WHICH packages the gate sent.
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        let asked = {};
+        try {
+          asked = JSON.parse(body);
+        } catch {
+          /* an unparseable request gets no findings */
+        }
+        const answered = Object.fromEntries(
+          Object.entries(findings).filter(([name]) => Object.hasOwn(asked, name)),
+        );
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ lodash: [CANARY_ADVISORY], ...answered }));
+      });
       return;
     }
     // mode === 'hang' — reproduces the 2026-09-04 socket timeouts.
@@ -74,8 +89,36 @@ function startService(mode, findings = {}) {
   });
 }
 
-function runGate({ url, lockfile, extraArgs = [], env = {} }) {
+/**
+ * Per-request budget for every case that is NOT about the timeout.
+ *
+ * Every case spawns a fresh gate process, and its first fetch() pays undici's
+ * lazy initialisation and a new connection INSIDE the gate's per-request
+ * timeout (the AbortSignal is created before fetch() is called). Measured with
+ * Node 26.13.1 on a 12-core Mac (2026-11-20, first fetch in a new process to a
+ * local server): idle p50 38 ms / max 74 ms; under vitest + build p90 139 ms /
+ * max 182 ms; with the CPU 2x oversubscribed (roughly a 4-vCPU runner that is
+ * also building) p50 222 ms / p90 357 ms / max 385 ms, 6 of 40 over 300 ms. The
+ * 300 ms that used to apply to every case therefore flaked `quality:ci`. A
+ * healthy local fake answers in milliseconds, so a generous budget costs
+ * nothing when the gate works and only bounds how long a broken one can stall.
+ */
+const REQUEST_BUDGET_MS = '10000';
+
+/**
+ * The budget for the hang cases, which ARE about the timeout: the fake never
+ * answers, so each attempt has to end by the gate aborting it. 1000 ms clears
+ * the worst cold-start measured above, so the abort is the timeout firing on a
+ * request that was actually sent, not on undici still starting up. Bounded
+ * from outside by HANG_DEADLINE_MS: a gate that stopped honouring
+ * AUDIT_TIMEOUT_MS would otherwise hang this self-test instead of failing it.
+ */
+const HANG_TIMEOUT_MS = '1000';
+const HANG_DEADLINE_MS = 15000;
+
+function runGate({ url, lockfile, extraArgs = [], env = {}, deadlineMs = 60000 }) {
   return new Promise((resolve) => {
+    const started = Date.now();
     const child = spawn(
       process.execPath,
       [GATE, '--audit-level=high', `--lockfile=${lockfile}`, ...extraArgs],
@@ -85,7 +128,7 @@ function runGate({ url, lockfile, extraArgs = [], env = {} }) {
           AUDIT_CANARY_URL: url,
           AUDIT_RETRIES: '2',
           AUDIT_BASE_DELAY_MS: '1',
-          AUDIT_TIMEOUT_MS: '300',
+          AUDIT_TIMEOUT_MS: REQUEST_BUDGET_MS,
           GITHUB_ACTIONS: '',
           AUDIT_REQUIRE_VERDICT: '',
           ...env,
@@ -94,9 +137,22 @@ function runGate({ url, lockfile, extraArgs = [], env = {} }) {
       },
     );
     let out = '';
+    let killed = false;
+    const watchdog = setTimeout(() => {
+      killed = true;
+      child.kill('SIGKILL');
+    }, deadlineMs);
     child.stdout.on('data', (c) => (out += c));
     child.stderr.on('data', (c) => (out += c));
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => {
+      clearTimeout(watchdog);
+      const elapsedMs = Date.now() - started;
+      resolve({
+        code: killed ? 'killed' : code,
+        out: killed ? `${out}\n[killed after ${deadlineMs} ms]` : out,
+        elapsedMs,
+      });
+    });
   });
 }
 
@@ -206,18 +262,24 @@ for (const broken of [
 // The regression that motivated the gate: never launder "could not check" into
 // "clean", in any of the shapes npm actually produced.
 for (const mode of ['hang', 'error', 'degraded']) {
+  // Only the hang case exercises the per-request timeout.
+  const timing =
+    mode === 'hang'
+      ? { env: { AUDIT_TIMEOUT_MS: HANG_TIMEOUT_MS }, deadlineMs: HANG_DEADLINE_MS }
+      : { env: {} };
   await withService(mode, {}, async (url) => {
-    const result = await runGate({ url, lockfile: cleanLock });
+    const result = await runGate({ url, lockfile: cleanLock, ...timing });
     check(
       `service ${mode} -> UNDETERMINED, never reported as CLEAN`,
       result.code === 0 && /UNDETERMINED/.test(result.out) && !/CLEAN/.test(result.out),
-      `exit=${result.code} out=${result.out.trim()}`,
+      `exit=${result.code} elapsed=${result.elapsedMs}ms out=${result.out.trim()}`,
     );
 
     const strict = await runGate({
       url,
       lockfile: cleanLock,
-      env: { AUDIT_REQUIRE_VERDICT: '1' },
+      ...timing,
+      env: { ...timing.env, AUDIT_REQUIRE_VERDICT: '1' },
     });
     check(
       `service ${mode} + AUDIT_REQUIRE_VERDICT=1 -> exit 1`,
@@ -231,7 +293,8 @@ await withService('hang', {}, async (url) => {
   const annotated = await runGate({
     url,
     lockfile: cleanLock,
-    env: { GITHUB_ACTIONS: 'true' },
+    env: { GITHUB_ACTIONS: 'true', AUDIT_TIMEOUT_MS: HANG_TIMEOUT_MS },
+    deadlineMs: HANG_DEADLINE_MS,
   });
   check(
     'UNDETERMINED emits a ::warning:: annotation under GitHub Actions',
@@ -303,7 +366,7 @@ await withService(
     );
     const result = await runGate({ url, lockfile: pnpm12 });
     check(
-      'pnpm 12 two-document lockfile -> audits the workspace document (finding reported)',
+      'pnpm 12 two-document lockfile -> workspace document audited (its finding reported)',
       result.code === 1 && /VULNERABLE/.test(result.out) && /minimist/.test(result.out),
       `exit=${result.code} out=${result.out.trim()}`,
     );
@@ -314,25 +377,36 @@ await withService(
     );
     const rev = await runGate({ url, lockfile: reversed });
     check(
-      'workspace document second -> still the one audited',
+      'workspace document second -> still audited',
       rev.code === 1 && /VULNERABLE/.test(rev.out) && /minimist/.test(rev.out),
       `exit=${rev.code} out=${rev.out.trim()}`,
+    );
+
+    // `pnpm audit` sends the env document's packages (pnpm itself and the
+    // @pnpm/exe.* binaries), so the gate must too: a finding that exists ONLY
+    // in the env document has to surface.
+    const envFinding = writeLockfile(
+      envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
+    );
+    const env = await runGate({ url, lockfile: envFinding });
+    check(
+      'a finding only in the env (package-manager) document is reported',
+      env.code === 1 && /VULNERABLE/.test(env.out) && /minimist/.test(env.out),
+      `exit=${env.code} out=${env.out.trim()}`,
     );
   },
 );
 
-// The env document's packages are not workspace dependencies; they must not be
-// read IN PLACE of the workspace document, nor merged into it. The count is
-// the discriminator: the workspace document has one package, the env document
-// three, the two together four.
+// Both documents, each package once: the workspace document has one package,
+// the env document three, the union four.
 await withService('healthy', {}, async (url) => {
   const lockfile = writeLockfile(
     envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
   );
   const result = await runGate({ url, lockfile });
   check(
-    'only the workspace document is audited (1 package, not the env document or both)',
-    result.code === 0 && /CLEAN — 1 packages checked/.test(result.out),
+    'both documents are audited (4 packages: 1 workspace + 3 package-manager)',
+    result.code === 0 && /CLEAN — 4 packages checked/.test(result.out),
     `exit=${result.code} out=${result.out.trim()}`,
   );
 });
@@ -346,6 +420,12 @@ await withService('healthy', {}, async (url) => {
       workspaceDocument(['react@19.0.0']) + workspaceDocument(['minimist@1.2.5']),
     ],
     ['an unrecognised extra document', `---\nfoo: bar\n${workspaceDocument(['react@19.0.0'])}`],
+    [
+      'two env documents',
+      envDocument(PNPM_PACKAGES) +
+        envDocument(['pnpm@12.20.0']) +
+        workspaceDocument(['react@19.0.0']),
+    ],
     [
       'a document with a YAML error',
       `${envDocument(PNPM_PACKAGES)}---\nlockfileVersion: '9.0'\npackages: [unclosed\n`,
@@ -407,6 +487,54 @@ await withService(
       '--prod with an empty tree -> refuses to report clean, exit 1',
       emptyProd.code === 1 && !/CLEAN/.test(emptyProd.out),
       `exit=${emptyProd.code} out=${emptyProd.out.trim()}`,
+    );
+  },
+);
+
+// `pnpm ls --prod` never lists the package manager, but `pnpm audit --prod`
+// audits it, so --prod adds the lockfile's env document.
+await withService(
+  'healthy',
+  { minimist: [{ id: 6, severity: 'critical', title: 'Prototype Pollution' }] },
+  async (url) => {
+    const shim = makePnpmShim(
+      JSON.stringify([{ name: 'root', dependencies: { react: { version: '19.2.8' } } }]),
+    );
+    const run = (lockfile) =>
+      runGate({
+        url,
+        lockfile,
+        extraArgs: ['--prod'],
+        env: { PATH: `${shim}:${process.env.PATH}` },
+      });
+
+    const flagged = await run(
+      writeLockfile(
+        envDocument([...PNPM_PACKAGES, 'minimist@1.2.5']) + workspaceDocument(['react@19.0.0']),
+      ),
+    );
+    check(
+      '--prod: a finding in the env (package-manager) document is reported',
+      flagged.code === 1 && /VULNERABLE/.test(flagged.out) && /minimist/.test(flagged.out),
+      `exit=${flagged.code} out=${flagged.out.trim()}`,
+    );
+
+    const clean = await run(
+      writeLockfile(envDocument(PNPM_PACKAGES) + workspaceDocument(['react@19.0.0'])),
+    );
+    check(
+      '--prod: prod tree plus env document (3 packages: react + pnpm + @pnpm/exe)',
+      clean.code === 0 && /CLEAN — 3 packages checked/.test(clean.out),
+      `exit=${clean.code} out=${clean.out.trim()}`,
+    );
+
+    const ambiguous = await run(
+      writeLockfile(workspaceDocument(['react@19.0.0']) + workspaceDocument(['react@19.0.0'])),
+    );
+    check(
+      '--prod: an ambiguous lockfile still refuses, exit 1',
+      ambiguous.code === 1 && /audit gate: lockfile/.test(ambiguous.out),
+      `exit=${ambiguous.code} out=${ambiguous.out.trim()}`,
     );
   },
 );

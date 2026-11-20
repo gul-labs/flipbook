@@ -4,8 +4,12 @@
 # Screenshot baselines are per-platform: Playwright looks for
 # `<name>-<project>-<platform>.png`, so baselines written on macOS are invisible
 # to an ubuntu-latest runner, and the test fails with "A snapshot doesn't
-# exist". Generating them here — in the same image CI uses — is the only way the
-# committed baselines mean anything.
+# exist". This generates them in the official Playwright image for the pinned
+# version (Ubuntu noble, browsers baked in), a reproducible stand-in for the CI
+# runner. It is NOT the image CI uses: CI runs directly on `ubuntu-latest`
+# after `playwright install --with-deps`, so fonts and system libraries can
+# differ, and a baseline generated here can still fail on the runner. Check
+# the first CI run after regenerating.
 #
 # Usage: pnpm test:e2e:golden:update:linux
 set -euo pipefail

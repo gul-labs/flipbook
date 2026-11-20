@@ -30,9 +30,11 @@ allowBuilds:
 # (`minimumReleaseAgeStrict` defaults to true only when this is configured):
 # resolution fails instead of falling back to a too-new version. pnpm also
 # re-checks every lockfile entry against it on `--frozen-lockfile` installs, so
-# a lockfile written under a weaker policy is rejected in CI. Stating the value
-# here is also what a Dependabot `cooldown` should be kept in line with. A
-# Dependabot PR for a release under a day old fails the frozen install
-# (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION) until the release ages; re-run it
-# then rather than lowering this.
+# a lockfile written under a weaker policy is rejected in CI. Keep
+# `cooldown.default-days` in .github/dependabot.yml (2) at or above this
+# window, so Dependabot version updates never propose a release that the
+# frozen install would reject (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION).
+# Dependabot security updates ignore that cooldown; one for a fix under a day
+# old fails until the fix ages or is added to `minimumReleaseAgeExclude`.
+# Do not lower this to make such a PR pass.
 minimumReleaseAge: 1440

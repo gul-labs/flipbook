@@ -49,9 +49,29 @@ const REGISTRY = (process.env.PROVENANCE_REGISTRY_URL ?? 'https://registry.npmjs
   /\/+$/,
   '',
 );
-const RETRIES = Number(process.env.PROVENANCE_RETRIES ?? 6);
-const BASE_DELAY_MS = Number(process.env.PROVENANCE_BASE_DELAY_MS ?? 5000);
-const TIMEOUT_MS = Number(process.env.PROVENANCE_TIMEOUT_MS ?? 20000);
+if (!URL.canParse(REGISTRY) || !/^https?:$/.test(new URL(REGISTRY).protocol)) {
+  badInput(`PROVENANCE_REGISTRY_URL=${JSON.stringify(REGISTRY)} is not an http(s) URL`);
+}
+/**
+ * A tuning variable, or its default. Validated rather than passed through
+ * `Number()`: `PROVENANCE_RETRIES=0` or `=abc` used to run the fetch loop zero
+ * times and die on a TypeError, exiting non-zero by accident instead of with a
+ * named outcome.
+ */
+function tuning(name, fallback, { integer }) {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  const shapeOk = integer ? /^[1-9]\d*$/.test(raw.trim()) : /^\d+(?:\.\d+)?$/.test(raw.trim());
+  if (!shapeOk || !Number.isFinite(value) || value <= 0) {
+    badInput(`${name}=${JSON.stringify(raw)} must be a positive ${integer ? 'integer' : 'number'}`);
+  }
+  return value;
+}
+
+const RETRIES = tuning('PROVENANCE_RETRIES', 6, { integer: true });
+const BASE_DELAY_MS = tuning('PROVENANCE_BASE_DELAY_MS', 5000, { integer: false });
+const TIMEOUT_MS = tuning('PROVENANCE_TIMEOUT_MS', 20000, { integer: false });
 
 // npm's own name rule (lowercase, URL-safe, optional @scope/), and a version
 // that is at least shaped like semver. Anything else is refused rather than
