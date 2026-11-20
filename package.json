@@ -4,9 +4,9 @@
   "type": "module",
   "description": "Realistic page-flip libraries for the web — vanilla TypeScript core and React wrapper.",
   "license": "MIT AND MPL-2.0",
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@12.21.0",
   "engines": {
-    "node": ">=22.18.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "repository": {
     "type": "git",
@@ -30,7 +30,7 @@
     "preflight": "node ./scripts/quality.mjs",
     "quality": "pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "check:workflows": "node ./scripts/check-workflow-guards.mjs",
-    "quality:ci": "pnpm check:workflows && pnpm test:audit-gate && pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test:coverage && pnpm test:coverage-areas && pnpm size && node ./scripts/check-isolated-types.mjs && pnpm test:packed",
+    "quality:ci": "pnpm check:workflows && pnpm test:audit-gate && pnpm test:provenance-gate && pnpm preflight && pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test:coverage && pnpm test:coverage-areas && pnpm size && node ./scripts/check-isolated-types.mjs && pnpm test:packed",
     "quality:examples": "pnpm build && pnpm build:examples",
     "quality:full": "pnpm quality:ci && pnpm quality:examples && pnpm audit --audit-level=high",
     "size": "pnpm --filter @gullabs/flipbook-core size",
@@ -48,45 +48,38 @@
     "test:packed": "node ./scripts/check-packed-artifacts.mjs",
     "test:e2e:golden:update:linux": "bash ./scripts/update-golden-linux.sh",
     "audit:gate": "node scripts/audit.mjs --prod --audit-level=high",
-    "test:audit-gate": "node scripts/audit.test.mjs"
+    "test:audit-gate": "node scripts/audit.test.mjs",
+    "test:provenance-gate": "node scripts/check-published-provenance.test.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.1",
     "@testing-library/dom": "^10.4.2",
-    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/jest-dom": "^8.0.0",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.8",
+    "@testing-library/user-event": "^14.6.13",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.1",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.13.0",
+    "globals": "^17.14.0",
     "husky": "^9.1.7",
-    "jsdom": "^30.1.3",
-    "lint-staged": "^17.6.0",
-    "prettier": "^3.9.10",
+    "jsdom": "^31.0.1",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "semver": "^7.8.5",
+    "semver": "^7.8.6",
     "terser": "^5.51.2",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.73.0",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.1",
     "yaml": "^2.9.1"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp",
-      "@swc/core",
-      "unrs-resolver"
-    ]
   }
 }

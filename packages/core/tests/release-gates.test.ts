@@ -119,6 +119,7 @@ const GUARD = [
   "github.event.workflow_run.event == 'push'",
   'github.event.workflow_run.head_repository.full_name == github.repository',
   "github.event.workflow_run.head_branch == 'main'",
+  'github.event.workflow_run.head_sha == github.sha',
 ].join(' &&\n      ');
 
 /** changesets/action@v2 contract — required so fixtures exercise the real guards. */
@@ -269,6 +270,7 @@ jobs:
     ["github.event.workflow_run.event == 'push'", 'event'],
     ['github.event.workflow_run.head_repository.full_name == github.repository', 'repository'],
     ["github.event.workflow_run.head_branch == 'main'", 'branch'],
+    ['github.event.workflow_run.head_sha == github.sha', 'head-sha'],
   ])('REJECTS a workflow with the %s guard dropped', (dropped, label) => {
     const remaining = GUARD.split('&&')
       .map((s) => s.trim())
@@ -276,6 +278,20 @@ jobs:
       .join(' &&\n      ');
     expect(remaining).not.toContain(dropped);
     const path = writeWorkflow(`drop-${label}`, safeWorkflow({ jobIf: remaining }));
+    expect(exitCodeOf([WORKFLOW_GATE, path])).not.toBe(0);
+  });
+
+  // The fifth guard ties the commit that is built to the commit the run (and
+  // so its provenance) is attributed to. A comparison that is always true, or
+  // one against the wrong side, must not satisfy it.
+  test.each([
+    ['github.event.workflow_run.head_sha == github.event.workflow_run.head_sha', 'tautology'],
+    ['github.event.workflow_run.head_sha != github.sha', 'negated'],
+    ['github.event.workflow_run.head_commit.id == github.sha', 'head-commit-id'],
+  ])('REJECTS the head_sha guard written as %s', (replacement, label) => {
+    const jobIf = GUARD.replace('github.event.workflow_run.head_sha == github.sha', replacement);
+    expect(jobIf).toContain(replacement);
+    const path = writeWorkflow(`head-sha-${label}`, safeWorkflow({ jobIf }));
     expect(exitCodeOf([WORKFLOW_GATE, path])).not.toBe(0);
   });
 
@@ -297,7 +313,7 @@ jobs:
     expect(exitCodeOf([WORKFLOW_GATE, writeWorkflow('no-publish-job', body)])).not.toBe(0);
   });
 
-  // NEGATIVE CONTROL. Same four conditions, written as differently as GitHub
+  // NEGATIVE CONTROL. Same five conditions, written as differently as GitHub
   // allows: a literal block scalar instead of a folded one, double quotes
   // instead of single, a flow mapping for `permissions`, a `${{ }}` wrapper,
   // reversed equality operands, and one conjunct in parentheses. A gate that
@@ -318,7 +334,8 @@ jobs:
       \${{ 'success' == github.event.workflow_run.conclusion
       &&   github.event.workflow_run.event == "push"
       &&   (github.event.workflow_run.head_repository.full_name == github.repository)
-      &&   github.event.workflow_run.head_branch == "main" }}
+      &&   github.event.workflow_run.head_branch == "main"
+      &&   github.sha == github.event.workflow_run.head_sha }}
     permissions: { contents: write, id-token: write, pull-requests: write }
     steps:
       - uses: actions/checkout@v7

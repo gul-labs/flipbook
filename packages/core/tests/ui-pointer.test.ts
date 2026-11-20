@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { FlippingState, PageFlip } from '@gullabs/flipbook-core';
 import { installPointerCaptureShims, makeHtmlBook, sizeElement } from './html-book-fixture';
+import { cssValue } from './cssom';
 
 const books: Array<{ destroy: () => void }> = [];
 
@@ -421,7 +422,7 @@ describe('W2 — wrapper aspect ratio survives autoSize: false', () => {
 
     const wrapper = host.querySelector('.stf__wrapper') as HTMLElement;
     // Landscape spread: height / (width * 2).
-    expect(wrapper.style.paddingBottom).toBe(`${(400 / 600) * 100}%`);
+    expect(wrapper.style.paddingBottom).toBe(cssValue('padding-bottom', `${(400 / 600) * 100}%`));
     expect(app.getSettings().autoSize).toBe(false);
   });
 
@@ -437,7 +438,7 @@ describe('W2 — wrapper aspect ratio survives autoSize: false', () => {
 
     app.updateSettings({ width: 320, height: 400 });
     const wrapper = host.querySelector('.stf__wrapper') as HTMLElement;
-    expect(wrapper.style.paddingBottom).toBe(`${(400 / 640) * 100}%`);
+    expect(wrapper.style.paddingBottom).toBe(cssValue('padding-bottom', `${(400 / 640) * 100}%`));
   });
 
   test('autoSize: true keeps its ratio (no regression)', () => {
@@ -451,6 +452,6 @@ describe('W2 — wrapper aspect ratio survives autoSize: false', () => {
     });
 
     const wrapper = host.querySelector('.stf__wrapper') as HTMLElement;
-    expect(wrapper.style.paddingBottom).toBe(`${(400 / 600) * 100}%`);
+    expect(wrapper.style.paddingBottom).toBe(cssValue('padding-bottom', `${(400 / 600) * 100}%`));
   });
 });

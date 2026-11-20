@@ -66,8 +66,8 @@ body:
       description: Browser / Node / OS / package manager.
       placeholder: |
         - Browser: Safari 18 iOS / Chrome 128 desktop
-        - Node: 24.x
-        - pnpm 10.34.5 / macOS 15
+        - Node: 26.x
+        - pnpm 12.21.0 / macOS 15
     validations:
       required: true
 

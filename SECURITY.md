@@ -35,11 +35,13 @@ Correct method names use camelCase `loadFromHTML` / `updateFromHtml` (not `loadF
 
 ## Releases and CI
 
-- Releases publish from GitHub Actions. The Release workflow is triggered by a successful run of the CI workflow (gitleaks + `pnpm audit --prod` + `quality:ci`) and re-runs `pnpm preflight` immediately before publishing. See [`RELEASING.md`](./RELEASING.md).
-- Publish uses an **npm automation token** stored as the `NPM_TOKEN` repository secret, plus [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`id-token: write` + `NPM_CONFIG_PROVENANCE=true`). Provenance is signed with the Actions OIDC identity, but the publish itself authenticates with the long-lived token — this repository is **not** yet on npm trusted publishing. Migrating requires per-package setup on npmjs.com first; see [`RELEASING.md`](./RELEASING.md).
+- Releases publish from GitHub Actions. The Release workflow is triggered by a successful run of the CI workflow (gitleaks + the canary-verified production audit `pnpm audit:gate` + `quality:ci`) and re-runs `pnpm preflight` immediately before publishing. See [`RELEASING.md`](./RELEASING.md).
+- [npm provenance](https://docs.npmjs.com/generating-provenance-statements) comes only from [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, `id-token: write`): pnpm 12 publishes natively and ignores `NPM_CONFIG_PROVENANCE`. Trusted publishing must be configured on npmjs.com for each package against `gul-labs/flipbook` / `release.yml`; whether it is, is **not confirmed**. The Release workflow holds **no npm token**: publishing authenticates only through that OIDC exchange, so until a package has a trusted publisher it cannot be published from CI at all, rather than being published without provenance. The `NPM_TOKEN` repository secret is no longer read. A provenance check after publishing also fails the job while any published workspace version lacks an attestation, and the job only runs when the commit it builds is the commit the run (and so the provenance) is attributed to. See [`RELEASING.md`](./RELEASING.md).
+- Installs refuse any package version published less than 24 hours ago (`minimumReleaseAge: 1440` in `pnpm-workspace.yaml`, strict because it is set explicitly, and re-checked against every lockfile entry on frozen installs). Dependabot version updates wait 2 days (`cooldown` in `.github/dependabot.yml`); its security updates do not wait.
+- The audit gate (`scripts/audit.mjs`) checks the package manager too: the pinned pnpm and its `@pnpm/exe.*` binaries, recorded in the first document of `pnpm-lock.yaml`, are sent to the advisory service alongside the workspace's packages, in both the production and full modes — the same set `pnpm audit` sends.
 - CI runs `gitleaks` on every pull request and on `main`.
 - Dependabot opens weekly PRs for npm and GitHub Actions.
-- Install lifecycle scripts are allow-listed via `pnpm.onlyBuiltDependencies` in the root `package.json`.
+- Dependency install lifecycle scripts are blocked unless allow-listed in `allowBuilds` in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml). `pnpm preflight` fails if the allowlist is missing or if a stale `onlyBuiltDependencies` / `package.json` `pnpm` field reappears.
 
 ## Supply chain
 

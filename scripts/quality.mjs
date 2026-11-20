@@ -70,11 +70,103 @@ for (const dir of ['packages/core', 'packages/react']) {
   }
 }
 
-// pnpm >= 10 blocks dependency install scripts unless allowlisted, and reads
-// the allowlist from pnpm-workspace.yaml (not package.json, as in pnpm 9).
-const workspace = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
-if (!/^onlyBuiltDependencies:\s*$/m.test(workspace)) {
-  console.error('pnpm-workspace.yaml must define an onlyBuiltDependencies allowlist');
+// pnpm >= 10 blocks dependency install scripts unless allowlisted. The
+// allowlist is `allowBuilds` in pnpm-workspace.yaml: pnpm 11 removed
+// `onlyBuiltDependencies` and ignores the `pnpm` field in package.json, so an
+// allowlist in either of those places is dead config that reads as if it were
+// in force. pnpm 12 rejects unknown workspace keys, but measured on 12.21.0 it
+// still accepts `onlyBuiltDependencies` without a word, so this check is what
+// catches it. Parsed, not grepped: a regex accepts a key that is commented out
+// or nested under another mapping.
+const require_ = createRequire(import.meta.url);
+let workspace;
+try {
+  workspace = require_('yaml').parse(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'));
+} catch (error) {
+  console.error(`pnpm-workspace.yaml is not parseable YAML: ${String(error)}`);
+  process.exit(1);
+}
+const allowBuilds = workspace?.allowBuilds;
+if (
+  allowBuilds === null ||
+  typeof allowBuilds !== 'object' ||
+  Array.isArray(allowBuilds) ||
+  !Object.values(allowBuilds).some((v) => v === true) ||
+  !Object.values(allowBuilds).every((v) => typeof v === 'boolean')
+) {
+  console.error(
+    'pnpm-workspace.yaml must define `allowBuilds` as a mapping of package name to true/false,\n' +
+      `with at least one package allowed (got ${JSON.stringify(allowBuilds)}).`,
+  );
+  process.exit(1);
+}
+if (workspace && 'onlyBuiltDependencies' in workspace) {
+  console.error(
+    'pnpm-workspace.yaml still sets `onlyBuiltDependencies`, which pnpm 11 removed. Use `allowBuilds`.',
+  );
+  process.exit(1);
+}
+
+// The approved set is pinned exactly. An allow entry for a package that has no
+// build script today is a standing permission for whatever later arrives
+// under that name, so a new `true` entry is a reviewed change to this list,
+// not something an install prompt can add. `false` entries (explicit denials)
+// are harmless and allowed.
+const APPROVED_BUILDS = ['esbuild'];
+const allowed = Object.entries(allowBuilds)
+  .filter(([, v]) => v === true)
+  .map(([k]) => k)
+  .sort();
+if (JSON.stringify(allowed) !== JSON.stringify(APPROVED_BUILDS)) {
+  console.error(
+    `pnpm-workspace.yaml allowBuilds permits ${JSON.stringify(allowed)}; the approved set is ` +
+      `${JSON.stringify(APPROVED_BUILDS)}.\n` +
+      'Allowing a dependency build script is a security decision: update APPROVED_BUILDS in\n' +
+      'scripts/quality.mjs in the same reviewed change, with the reason.',
+  );
+  process.exit(1);
+}
+
+// pnpm 12's documented ways around the allowlist (settings reference, "Build"):
+//   dangerouslyAllowAllBuilds: true   runs every dependency's build script;
+//   permissions.<pkg>.build: true     outranks allowBuilds (added in 12.11);
+//   strictDepBuilds: false            turns an unreviewed build script from a
+//                                     failed install into a warning.
+if (
+  workspace?.dangerouslyAllowAllBuilds !== undefined &&
+  workspace.dangerouslyAllowAllBuilds !== false
+) {
+  console.error('pnpm-workspace.yaml sets `dangerouslyAllowAllBuilds`; it bypasses allowBuilds.');
+  process.exit(1);
+}
+if (workspace?.strictDepBuilds !== undefined && workspace.strictDepBuilds !== true) {
+  console.error(
+    'pnpm-workspace.yaml sets `strictDepBuilds` to something other than true; an unreviewed\n' +
+      'build script must fail the install, not warn.',
+  );
+  process.exit(1);
+}
+if (workspace?.permissions !== undefined) {
+  const permissions = workspace.permissions;
+  const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  // A `build` capability other than an explicit `false` counts as granted.
+  const granted = isMapping(permissions)
+    ? Object.entries(permissions)
+        .filter(([, p]) => !isMapping(p) || ('build' in p && p.build !== false))
+        .map(([k]) => k)
+    : ['<unparseable permissions>'];
+  if (granted.some((k) => !APPROVED_BUILDS.includes(k))) {
+    console.error(
+      `pnpm-workspace.yaml \`permissions\` grants builds outside the approved set: ${JSON.stringify(granted)}.`,
+    );
+    process.exit(1);
+  }
+}
+const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+if ('pnpm' in rootManifest) {
+  console.error(
+    'package.json has a `pnpm` field. pnpm 11+ ignores it; move the setting to pnpm-workspace.yaml.',
+  );
   process.exit(1);
 }
 
@@ -83,7 +175,6 @@ if (!/^onlyBuiltDependencies:\s*$/m.test(workspace)) {
 // which is most of the quality bar. This is why the workspace is pinned to
 // TypeScript 6 rather than the newest release; make it a loud failure, not a
 // comment someone reads later.
-const require_ = createRequire(import.meta.url);
 
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);

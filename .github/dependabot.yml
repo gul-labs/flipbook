@@ -11,6 +11,20 @@ updates:
       # is bumped by hand when typescript-eslint supports it.
       - dependency-name: 'typescript'
         update-types: ['version-update:semver-major']
+    # pnpm-workspace.yaml sets `minimumReleaseAge: 1440` (strict): CI's frozen
+    # install rejects any lockfile entry published less than 24 hours ago, so
+    # a version-update PR for a younger release can only fail. GitHub's
+    # options reference does not say how a cooldown "day" is measured (24 h
+    # from publish, or calendar days), so 1 day could still propose a release
+    # minutes under 24 h old; 2 is the smallest whole-day value that cannot.
+    # Per the same reference, cooldown applies to VERSION updates only, not
+    # security updates: a security PR for a fix under a day old will still
+    # fail the install until the fix ages, or until the patched version is
+    # listed in `minimumReleaseAgeExclude`, which `pnpm audit --fix` writes
+    # (pnpm docs, cli/audit "--fix"; observed on pnpm 12.21.0). The docs state
+    # no interaction between `cooldown` and `groups`.
+    cooldown:
+      default-days: 2
     groups:
       production-minor:
         dependency-type: production

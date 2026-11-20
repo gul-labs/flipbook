@@ -6,9 +6,23 @@ Only [@atifgul99](https://github.com/atifgul99) can push or merge to `main`. Eve
 
 ## Dev setup
 
-**Node `>=22.18.0`** (`.nvmrc` pins **24**; `engines` in the root `package.json`
-is `>=22.18.0`). Use `nvm use` / `fnm use` so local Node matches CI. Package
-manager is **pnpm 10.34.5** (see `packageManager` in the root `package.json`).
+**Developing this repo: Node 26** (`.nvmrc`), which is what CI runs and what
+the toolchain is verified on. The private root `package.json` declares the
+range the locked dev tools support, `^22.22.2 || ^24.15.0 || >=26.0.0` (the
+intersection of their own `engines`; jsdom, tsup, vitest and size-limit skip
+the odd lines), but only 26 is exercised. Use `nvm use` / `fnm use` so local
+Node matches CI. This is separate from what the **published** packages need:
+`@gullabs/flipbook-core` and `@gullabs/react-flipbook` declare their own
+`engines` (`>=22.18.0`), unchanged.
+
+Package manager is **pnpm 12.21.0** (see `packageManager` in the root
+`package.json`; any pnpm on your PATH switches to it). pnpm settings live only
+in `pnpm-workspace.yaml`. It refuses versions published less than a day ago
+(`minimumReleaseAge`), so a just-released dependency cannot be added until it
+has aged. Scripts do not install for you: with `verifyDepsBeforeRun: error`,
+`pnpm <script>`, `pnpm exec`, the git hooks and the e2e web server stop with
+`ERR_PNPM_VERIFY_DEPS_BEFORE_RUN` when `node_modules` is out of date (for
+example after switching branches). Run `pnpm install` and retry.
 
 ```bash
 pnpm install
@@ -37,7 +51,7 @@ pnpm quality:full       # quality:ci + examples + full audit
 
 CI runs **`verify`** (`quality:ci` on packages) and a separate **`examples`** job (`quality:examples`). The release gate uses the packages bar only.
 
-The Next.js example can flake on Node versions other than `.nvmrc`; pin Node 24 before blaming the library.
+The Next.js example can flake on Node versions other than `.nvmrc`; pin Node 26 before blaming the library.
 
 Demo-only Next lint rules (`@next/eslint-plugin-next`) are intentionally **not** in the monorepo ESLint config — examples share the React/TS bar (LINT-007).
 
